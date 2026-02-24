@@ -43,15 +43,26 @@ export class WisdomGateQuotaChecker extends QuotaChecker {
 
       const data: WisdomGateUsageResponse = await response.json();
 
+      // package_details is empty when Wisdom Gate quota is exceeded.
       const packageDetail = data.package_details?.[0];
-      if (!packageDetail) {
-        return this.errorResult(new Error('No package details found in response'));
-      }
+      let limit = 0;
+      let remaining = 0;
+      let used = 0;
+      let resetsAt: Date | undefined;
 
-      const limit = packageDetail.total_amount;
-      const remaining = packageDetail.amount;
-      const used = limit - remaining;
-      const resetsAt = new Date(packageDetail.expiry_time * 1000);
+      if (packageDetail) {
+        limit = packageDetail.total_amount;
+        remaining = packageDetail.amount;
+        used = limit - remaining;
+        resetsAt = new Date(packageDetail.expiry_time * 1000);
+      } else {
+        // When quota is exceeded, the API returns empty package details; fall back to totals.
+        const totalUsage = data.total_usage ?? 0;
+        const totalAvailable = data.total_available ?? 0;
+        remaining = Math.max(0, totalAvailable);
+        used = totalUsage;
+        limit = Math.max(totalUsage + totalAvailable, totalUsage);
+      }
 
       const window: QuotaWindow = this.createWindow(
         'monthly',

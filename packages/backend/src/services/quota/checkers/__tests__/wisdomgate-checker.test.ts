@@ -96,14 +96,14 @@ describe('WisdomGateQuotaChecker', () => {
     expect(result.error).toContain('HTTP 401: Unauthorized');
   });
 
-  it('returns error when no package_details found', async () => {
+  it('uses totals when package_details is empty', async () => {
     setFetchMock(async () => {
       return new Response(
         JSON.stringify({
           object: 'usage_details',
-          total_usage: 44.168262,
-          total_available: 23.852028,
-          regular_amount: 0.004,
+          total_usage: 68.020504,
+          total_available: -0.000214,
+          regular_amount: -0.000214,
           package_details: [],
         }),
         {
@@ -116,8 +116,17 @@ describe('WisdomGateQuotaChecker', () => {
     const checker = new WisdomGateQuotaChecker(makeConfig());
     const result = await checker.checkQuota();
 
-    expect(result.success).toBe(false);
-    expect(result.error).toContain('No package details found in response');
+    expect(result.success).toBe(true);
+    expect(result.error).toBeUndefined();
+    expect(result.windows).toHaveLength(1);
+
+    const window = result.windows?.[0];
+    expect(window?.windowType).toBe('monthly');
+    expect(window?.unit).toBe('dollars');
+    expect(window?.used).toBeCloseTo(68.020504, 6);
+    expect(window?.remaining).toBe(0);
+    expect(window?.limit).toBeCloseTo(68.020504, 6);
+    expect(window?.description).toBe('Wisdom Gate monthly credits');
   });
 
   it('throws error when session option is missing', async () => {
