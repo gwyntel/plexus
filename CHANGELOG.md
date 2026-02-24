@@ -1,5 +1,21 @@
 # Changelog
 
+## v0.17.5 - 2026-02-24
+
+### Quota handling improvements and dispatcher cooldown enhancements
+
+## v0.17.5 Release Notes
+
+### Features
+- **Dispatcher cooldown logic** ([6f7cffe](https://github.com/mcowger/plexus/commit/6f7cffe)): Enhanced cooldown mechanism to handle quota-related 400 errors with comprehensive test coverage
+
+### Fixes
+- **Quota package details** ([de97fa0](https://github.com/mcowger/plexus/commit/de97fa0)): Handle empty package details by falling back to total usage calculations
+- **Dispatcher error handling** ([dae6508](https://github.com/mcowger/plexus/commit/dae6508)): Expand cooldown trigger conditions to cover additional client error scenarios
+
+### Docker Image
+The Docker image has been updated and can be found at `ghcr.io/mcowger/plexus:latest`
+
 ## v0.17.4 - 2026-02-24
 
 ### Dispatcher cooldown logic and failover error classification improvements
