@@ -182,7 +182,10 @@ const CooldownRow: React.FC<CooldownRowProps> = ({
           <Info size={13} />
         </button>
         {open && (
-          <div className="absolute right-0 top-5 z-50 w-72 rounded-md border border-border shadow-lg p-3 text-xs space-y-2" style={{ backgroundColor: 'rgb(15, 23, 42)' }}>
+          <div
+            className="absolute right-0 top-5 z-50 w-72 rounded-md border border-border shadow-lg p-3 text-xs space-y-2"
+            style={{ backgroundColor: 'rgb(15, 23, 42)' }}
+          >
             <div className="flex items-center gap-1.5 font-semibold text-warning">
               <AlertTriangle size={12} />
               Cooldown Details

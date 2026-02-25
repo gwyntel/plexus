@@ -190,18 +190,21 @@ export class Dispatcher {
 
             if (canRetry) {
               await this.recordAttemptMetric(route, request.requestId, false);
-              // Always mark as failed when retrying — provider couldn't serve this request
-              CooldownManager.getInstance().markProviderFailure(
-                route.provider,
-                route.model,
-                undefined,
-                e?.routingContext?.providerResponse
-                  ? `HTTP ${e.routingContext.statusCode}: ${e.routingContext.providerResponse}`.slice(
-                      0,
-                      500
-                    )
-                  : e.message
-              );
+              // Only mark as failed if the error actually triggered a cooldown (i.e., it's not a caller error like validation)
+              // Caller errors (400 validation errors, 413, 422) should not cause cooldown
+              if (e?.routingContext?.cooldownTriggered) {
+                CooldownManager.getInstance().markProviderFailure(
+                  route.provider,
+                  route.model,
+                  undefined,
+                  e?.routingContext?.providerResponse
+                    ? `HTTP ${e.routingContext.statusCode}: ${e.routingContext.providerResponse}`.slice(
+                        0,
+                        500
+                      )
+                    : e.message
+                );
+              }
               logger.warn(
                 `Failover: retrying after HTTP ${response.status} from ${route.provider}/${route.model}`
               );
@@ -1261,18 +1264,20 @@ export class Dispatcher {
             lastError = e;
             if (canRetry) {
               await this.recordAttemptMetric(route, request.requestId, false);
-              // Always mark as failed when retrying — provider couldn't serve this request
-              CooldownManager.getInstance().markProviderFailure(
-                route.provider,
-                route.model,
-                undefined,
-                e?.routingContext?.providerResponse
-                  ? `HTTP ${e.routingContext.statusCode}: ${e.routingContext.providerResponse}`.slice(
-                      0,
-                      500
-                    )
-                  : e.message
-              );
+              // Only mark as failed if cooldown was actually triggered (not a caller error)
+              if (e?.routingContext?.cooldownTriggered) {
+                CooldownManager.getInstance().markProviderFailure(
+                  route.provider,
+                  route.model,
+                  undefined,
+                  e?.routingContext?.providerResponse
+                    ? `HTTP ${e.routingContext.statusCode}: ${e.routingContext.providerResponse}`.slice(
+                        0,
+                        500
+                      )
+                    : e.message
+                );
+              }
               logger.warn(
                 `Failover: retrying embeddings after HTTP ${response.status} from ${route.provider}/${route.model}`
               );
@@ -1440,18 +1445,20 @@ export class Dispatcher {
             lastError = e;
             if (canRetry) {
               await this.recordAttemptMetric(route, request.requestId, false);
-              // Always mark as failed when retrying — provider couldn't serve this request
-              CooldownManager.getInstance().markProviderFailure(
-                route.provider,
-                route.model,
-                undefined,
-                e?.routingContext?.providerResponse
-                  ? `HTTP ${e.routingContext.statusCode}: ${e.routingContext.providerResponse}`.slice(
-                      0,
-                      500
-                    )
-                  : e.message
-              );
+              // Only mark as failed if cooldown was actually triggered (not a caller error)
+              if (e?.routingContext?.cooldownTriggered) {
+                CooldownManager.getInstance().markProviderFailure(
+                  route.provider,
+                  route.model,
+                  undefined,
+                  e?.routingContext?.providerResponse
+                    ? `HTTP ${e.routingContext.statusCode}: ${e.routingContext.providerResponse}`.slice(
+                        0,
+                        500
+                      )
+                    : e.message
+                );
+              }
               logger.warn(
                 `Failover: retrying transcription after HTTP ${response.status} from ${route.provider}/${route.model}`
               );
@@ -1618,18 +1625,20 @@ export class Dispatcher {
             lastError = e;
             if (canRetry) {
               await this.recordAttemptMetric(route, request.requestId, false);
-              // Always mark as failed when retrying — provider couldn't serve this request
-              CooldownManager.getInstance().markProviderFailure(
-                route.provider,
-                route.model,
-                undefined,
-                e?.routingContext?.providerResponse
-                  ? `HTTP ${e.routingContext.statusCode}: ${e.routingContext.providerResponse}`.slice(
-                      0,
-                      500
-                    )
-                  : e.message
-              );
+              // Only mark as failed if cooldown was actually triggered (not a caller error)
+              if (e?.routingContext?.cooldownTriggered) {
+                CooldownManager.getInstance().markProviderFailure(
+                  route.provider,
+                  route.model,
+                  undefined,
+                  e?.routingContext?.providerResponse
+                    ? `HTTP ${e.routingContext.statusCode}: ${e.routingContext.providerResponse}`.slice(
+                        0,
+                        500
+                      )
+                    : e.message
+                );
+              }
               logger.warn(
                 `Failover: retrying speech after HTTP ${response.status} from ${route.provider}/${route.model}`
               );
@@ -1829,18 +1838,20 @@ export class Dispatcher {
             lastError = e;
             if (canRetry) {
               await this.recordAttemptMetric(route, request.requestId, false);
-              // Always mark as failed when retrying — provider couldn't serve this request
-              CooldownManager.getInstance().markProviderFailure(
-                route.provider,
-                route.model,
-                undefined,
-                e?.routingContext?.providerResponse
-                  ? `HTTP ${e.routingContext.statusCode}: ${e.routingContext.providerResponse}`.slice(
-                      0,
-                      500
-                    )
-                  : e.message
-              );
+              // Only mark as failed if cooldown was actually triggered (not a caller error)
+              if (e?.routingContext?.cooldownTriggered) {
+                CooldownManager.getInstance().markProviderFailure(
+                  route.provider,
+                  route.model,
+                  undefined,
+                  e?.routingContext?.providerResponse
+                    ? `HTTP ${e.routingContext.statusCode}: ${e.routingContext.providerResponse}`.slice(
+                        0,
+                        500
+                      )
+                    : e.message
+                );
+              }
               logger.warn(
                 `Failover: retrying image generation after HTTP ${response.status} from ${route.provider}/${route.model}`
               );
@@ -1997,18 +2008,20 @@ export class Dispatcher {
             lastError = e;
             if (canRetry) {
               await this.recordAttemptMetric(route, request.requestId, false);
-              // Always mark as failed when retrying — provider couldn't serve this request
-              CooldownManager.getInstance().markProviderFailure(
-                route.provider,
-                route.model,
-                undefined,
-                e?.routingContext?.providerResponse
-                  ? `HTTP ${e.routingContext.statusCode}: ${e.routingContext.providerResponse}`.slice(
-                      0,
-                      500
-                    )
-                  : e.message
-              );
+              // Only mark as failed if cooldown was actually triggered (not a caller error)
+              if (e?.routingContext?.cooldownTriggered) {
+                CooldownManager.getInstance().markProviderFailure(
+                  route.provider,
+                  route.model,
+                  undefined,
+                  e?.routingContext?.providerResponse
+                    ? `HTTP ${e.routingContext.statusCode}: ${e.routingContext.providerResponse}`.slice(
+                        0,
+                        500
+                      )
+                    : e.message
+                );
+              }
               logger.warn(
                 `Failover: retrying image edit after HTTP ${response.status} from ${route.provider}/${route.model}`
               );

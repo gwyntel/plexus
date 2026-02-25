@@ -42,19 +42,34 @@ export interface UnifiedMessage {
 
 // Unified Tool Types
 
-export interface UnifiedTool {
-  type: 'function';
-  function: {
-    name: string;
-    description?: string;
-    parameters: {
-      type: 'object';
-      properties: Record<string, any>;
-      required?: string[];
-      additionalProperties?: boolean;
-      $schema?: string;
-    };
+export type GoogleBuiltInToolType = 'googleSearch' | 'codeExecution' | 'urlContext';
+
+export interface UnifiedToolFunction {
+  name: string;
+  description?: string;
+  parameters?: {
+    type: 'object';
+    properties: Record<string, any>;
+    required?: string[];
+    additionalProperties?: boolean;
+    $schema?: string;
   };
+  parametersJsonSchema?: any; // Newer format supporting full JSON Schema (anyOf, oneOf, const)
+}
+
+export interface UnifiedTool {
+  type: 'function' | GoogleBuiltInToolType;
+  function?: UnifiedToolFunction;
+  // Google built-in tools don't have function declarations
+  googleSearch?: Record<string, never>;
+  codeExecution?: Record<string, never>;
+  urlContext?: Record<string, never>;
+}
+
+// Tool Configuration (for Gemini's toolConfig)
+export interface UnifiedToolConfig {
+  mode?: 'auto' | 'none' | 'any';
+  functionCallingPreference?: string;
 }
 
 export type ThinkLevel = 'none' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
@@ -75,6 +90,7 @@ export interface UnifiedChatRequest {
     | 'required'
     | string
     | { type: 'function'; function: { name: string } };
+  toolConfig?: UnifiedToolConfig; // Gemini's toolConfig (function calling configuration)
   reasoning?: {
     effort?: ThinkLevel;
     max_tokens?: number;
@@ -83,6 +99,7 @@ export interface UnifiedChatRequest {
   };
   include?: string[];
   prompt_cache_key?: string;
+  systemInstruction?: UnifiedMessage; // Gemini's systemInstruction field
   text?: {
     verbosity?: string;
     format?: {

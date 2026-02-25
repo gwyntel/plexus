@@ -1,5 +1,5 @@
 import { Content } from '@google/genai';
-import { UnifiedChatRequest, UnifiedMessage } from '../../types/unified';
+import { MessageContent, UnifiedChatRequest, UnifiedMessage } from '../../types/unified';
 import { convertGeminiPartsToUnified } from './part-mapper';
 
 /**
@@ -16,6 +16,7 @@ export async function parseGeminiRequest(input: any): Promise<UnifiedChatRequest
   const tools: any[] = input.tools || [];
   const model: string = input.model || '';
   const generationConfig = input.generationConfig || {};
+  const systemInstruction = input.systemInstruction as Content | undefined;
 
   const unifiedChatRequest: UnifiedChatRequest = {
     messages: [],
@@ -28,6 +29,29 @@ export async function parseGeminiRequest(input: any): Promise<UnifiedChatRequest
 
   if (input.stream) {
     unifiedChatRequest.stream = true;
+  }
+
+  // Handle Gap 1: systemInstruction (inbound)
+  if (systemInstruction && systemInstruction.parts) {
+    const onThinking = (text: string, signature?: string) => {
+      // systemInstruction typically doesn't contain thinking, but handle it anyway
+    };
+
+    const contentParts = convertGeminiPartsToUnified(systemInstruction.parts, onThinking);
+
+    // Simplify content structure if it's just text
+    let content: string | MessageContent[] = [];
+    const firstPart = contentParts[0];
+    if (contentParts.length === 1 && firstPart?.type === 'text') {
+      content = firstPart.text;
+    } else if (contentParts.length > 0) {
+      content = contentParts;
+    }
+
+    unifiedChatRequest.systemInstruction = {
+      role: 'system',
+      content,
+    };
   }
 
   // Map response format
@@ -44,6 +68,52 @@ export async function parseGeminiRequest(input: any): Promise<UnifiedChatRequest
       enabled: generationConfig.thinkingConfig.includeThoughts,
       max_tokens: generationConfig.thinkingConfig.thinkingBudget,
     };
+  }
+
+  // Gap 3: Map toolConfig (function calling configuration)
+  if (input.toolConfig) {
+    unifiedChatRequest.toolConfig = {
+      mode: input.toolConfig.functionCallingConfig?.mode,
+      functionCallingPreference: input.toolConfig.functionCallingConfig?.functionCallingPreference,
+    };
+  }
+
+  // Gap 4 & 5: Map tools (function declarations and Google built-in tools)
+  if (Array.isArray(tools) && tools.length > 0) {
+    const unifiedTools: any[] = [];
+
+    for (const tool of tools) {
+      // Handle function declarations
+      if (tool.functionDeclarations) {
+        for (const funcDecl of tool.functionDeclarations) {
+          unifiedTools.push({
+            type: 'function',
+            function: {
+              name: funcDecl.name,
+              description: funcDecl.description,
+              // Gap 4: Prefer parametersJsonSchema if available
+              parametersJsonSchema: funcDecl.parametersJsonSchema,
+              parameters: funcDecl.parameters,
+            },
+          });
+        }
+      }
+
+      // Gap 5: Handle Google built-in tools
+      if (tool.googleSearch) {
+        unifiedTools.push({ type: 'googleSearch' as const, googleSearch: {} });
+      }
+      if (tool.codeExecution) {
+        unifiedTools.push({ type: 'codeExecution' as const, codeExecution: {} });
+      }
+      if (tool.urlContext) {
+        unifiedTools.push({ type: 'urlContext' as const, urlContext: {} });
+      }
+    }
+
+    if (unifiedTools.length > 0) {
+      unifiedChatRequest.tools = unifiedTools;
+    }
   }
 
   // Map Gemini Contents to Unified Messages
