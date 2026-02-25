@@ -18,7 +18,6 @@ import {
 import { Badge } from '../../ui/Badge';
 import { Button } from '../../ui/Button';
 import { Card } from '../../ui/Card';
-import { MetricsOverviewCard, MetricItem } from '../MetricsOverviewCard';
 import {
   api,
   STAT_LABELS,
@@ -575,10 +574,7 @@ export const LiveTab: React.FC<LiveTabProps> = ({ pollInterval, onPollIntervalCh
             className="rounded-md border border-border-glass bg-bg-glass px-3 py-2"
           >
             <div className="flex flex-wrap items-center justify-between gap-2">
-              <span
-                className="text-sm text-text font-medium truncate max-w-60"
-                title={row.label}
-              >
+              <span className="text-sm text-text font-medium truncate max-w-60" title={row.label}>
                 {row.label}
               </span>
               <span className="text-xs text-text-secondary">
@@ -1033,183 +1029,194 @@ export const LiveTab: React.FC<LiveTabProps> = ({ pollInterval, onPollIntervalCh
         </span>
       </div>
 
-      <div className="mb-6">
-        <MetricsOverviewCard
-          title="Overview Metrics"
-          metrics={[
-            {
-              label: 'Total Requests',
-              value: totalRequestsValue,
-              icon: <Activity size={20} />,
-            },
-            {
-              label: 'Total Tokens',
-              value: totalTokensValue,
-              icon: <Database size={20} />,
-            },
-            {
-              label: 'Requests Today',
-              value: formatNumber(todayMetrics.requests, 0),
-              icon: <Activity size={20} />,
-            },
-            {
-              label: 'Tokens Today',
-              value: formatTokens(todayTokenTotal),
-              subtitle: [
-                `In: ${formatTokens(todayMetrics.inputTokens)}`,
-                `Out: ${formatTokens(todayMetrics.outputTokens)}`,
-                todayMetrics.reasoningTokens > 0 ? `Reasoning: ${formatTokens(todayMetrics.reasoningTokens)}` : null,
-                todayMetrics.cachedTokens > 0 ? `Cached: ${formatTokens(todayMetrics.cachedTokens)}` : null,
-                todayMetrics.cacheWriteTokens > 0 ? `Cache Write: ${formatTokens(todayMetrics.cacheWriteTokens)}` : null,
-              ].filter(Boolean).join(' • '),
-              icon: <Database size={20} />,
-            },
-            {
-              label: 'Cost Today',
-              value: formatCost(todayMetrics.totalCost, 4),
-              icon: <Zap size={20} />,
-            },
-          ]}
-        />
-      </div>
-
-      <div className="mb-6">
-        <MetricsOverviewCard
-          title={`Live Window Metrics (${LIVE_WINDOW_MINUTES}m)`}
-          metrics={[
-            {
-              label: `Requests (${LIVE_WINDOW_MINUTES}m)`,
-              value: formatNumber(summary.requestCount, 0),
-              icon: <Activity size={20} />,
-            },
-            {
-              label: 'Success Rate',
-              value: `${successRate.toFixed(1)}%`,
-              subtitle: `${summary.successCount} success / ${summary.errorCount} errors`,
-              icon: <Signal size={20} />,
-            },
-            {
-              label: 'Tokens / Min',
-              value: formatTokens(tokensPerMinute),
-              icon: <Database size={20} />,
-            },
-            {
-              label: 'Cost / Min',
-              value: formatCost(costPerMinute, 6),
-              icon: <Zap size={20} />,
-            },
-            {
-              label: 'Avg Latency',
-              value: formatMs(avgLatency),
-              icon: <Clock size={20} />,
-            },
-            {
-              label: 'Avg TTFT / Throughput',
-              value: formatMs(avgTtft),
-              subtitle: `${formatTPS(avgThroughput)} tok/s`,
-              icon: <Signal size={20} />,
-            },
-          ]}
-        />
-      </div>
-
-      <div style={{ marginBottom: '24px' }}>
-        <Card
-          title="Service Alerts"
-          className="alert-card"
-          style={{ borderColor: 'var(--color-warning)' }}
-          extra={
-            cooldowns.length > 0 ? (
-              <Button size="sm" variant="secondary" onClick={handleClearCooldowns}>
-                Clear All
-              </Button>
-            ) : undefined
-          }
-        >
-          {cooldowns.length === 0 ? (
-            <div className="text-text-secondary text-sm py-2">
-              No service alerts in the active cooldown window.
+      <div className="mb-4 grid grid-cols-1 lg:grid-cols-2 gap-4">
+        {/* Combined metrics card — half width */}
+        <div className="bg-bg-card border border-border rounded-lg overflow-hidden">
+          <div className="px-4 py-2.5 bg-bg-subtle border-b border-border flex items-center gap-2">
+            <Signal size={15} className="text-info" />
+            <h3 className="font-heading text-sm font-semibold text-text">Metrics</h3>
+          </div>
+          <div className="grid grid-cols-2 divide-x divide-border">
+            {/* Overview column */}
+            <div className="divide-y divide-border">
+              <div className="px-3 py-1.5 bg-bg-subtle/50">
+                <span className="text-[11px] font-semibold text-text-muted uppercase tracking-wider">
+                  Overview
+                </span>
+              </div>
+              <div className="px-3 py-2 flex items-center justify-between">
+                <span className="text-xs text-text-muted">Total Requests</span>
+                <span className="text-sm font-semibold text-text tabular-nums">
+                  {totalRequestsValue}
+                </span>
+              </div>
+              <div className="px-3 py-2 flex items-center justify-between">
+                <span className="text-xs text-text-muted">Total Tokens</span>
+                <span className="text-sm font-semibold text-text tabular-nums">
+                  {totalTokensValue}
+                </span>
+              </div>
+              <div className="px-3 py-2 flex items-center justify-between">
+                <span className="text-xs text-text-muted">Requests Today</span>
+                <span className="text-sm font-semibold text-text tabular-nums">
+                  {formatNumber(todayMetrics.requests, 0)}
+                </span>
+              </div>
+              <div className="px-3 py-2 flex items-center justify-between gap-2">
+                <span className="text-xs text-text-muted shrink-0">Tokens Today</span>
+                <div className="text-right">
+                  <span className="text-sm font-semibold text-text tabular-nums">
+                    {formatTokens(todayTokenTotal)}
+                  </span>
+                  <div className="text-[11px] text-text-muted">
+                    {[
+                      `In: ${formatTokens(todayMetrics.inputTokens)}`,
+                      `Out: ${formatTokens(todayMetrics.outputTokens)}`,
+                      todayMetrics.reasoningTokens > 0
+                        ? `Reasoning: ${formatTokens(todayMetrics.reasoningTokens)}`
+                        : null,
+                      todayMetrics.cachedTokens > 0
+                        ? `Cached: ${formatTokens(todayMetrics.cachedTokens)}`
+                        : null,
+                      todayMetrics.cacheWriteTokens > 0
+                        ? `Cache Write: ${formatTokens(todayMetrics.cacheWriteTokens)}`
+                        : null,
+                    ]
+                      .filter(Boolean)
+                      .join(' • ')}
+                  </div>
+                </div>
+              </div>
+              <div className="px-3 py-2 flex items-center justify-between">
+                <span className="text-xs text-text-muted">Cost Today</span>
+                <span className="text-sm font-semibold text-info tabular-nums">
+                  {formatCost(todayMetrics.totalCost, 4)}
+                </span>
+              </div>
             </div>
-          ) : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {/* Live Window column */}
+            <div className="divide-y divide-border">
+              <div className="px-3 py-1.5 bg-bg-subtle/50">
+                <span className="text-[11px] font-semibold text-text-muted uppercase tracking-wider">
+                  Live ({LIVE_WINDOW_MINUTES}m)
+                </span>
+              </div>
+              <div className="px-3 py-2 flex items-center justify-between">
+                <span className="text-xs text-text-muted">Requests</span>
+                <span className="text-sm font-semibold text-text tabular-nums">
+                  {formatNumber(summary.requestCount, 0)}
+                </span>
+              </div>
+              <div className="px-3 py-2 flex items-center justify-between">
+                <span className="text-xs text-text-muted">Success Rate</span>
+                <div className="text-right">
+                  <span className="text-sm font-semibold text-text tabular-nums">
+                    {successRate.toFixed(1)}%
+                  </span>
+                  <div className="text-[11px] text-text-muted">
+                    {summary.successCount} ok / {summary.errorCount} err
+                  </div>
+                </div>
+              </div>
+              <div className="px-3 py-2 flex items-center justify-between">
+                <span className="text-xs text-text-muted">Tokens / Min</span>
+                <span className="text-sm font-semibold text-text tabular-nums">
+                  {formatTokens(tokensPerMinute)}
+                </span>
+              </div>
+              <div className="px-3 py-2 flex items-center justify-between">
+                <span className="text-xs text-text-muted">Cost / Min</span>
+                <span className="text-sm font-semibold text-info tabular-nums">
+                  {formatCost(costPerMinute, 6)}
+                </span>
+              </div>
+              <div className="px-3 py-2 flex items-center justify-between">
+                <span className="text-xs text-text-muted">Avg Latency</span>
+                <span className="text-sm font-semibold text-text tabular-nums">
+                  {formatMs(avgLatency)}
+                </span>
+              </div>
+              <div className="px-3 py-2 flex items-center justify-between">
+                <span className="text-xs text-text-muted">TTFT / Throughput</span>
+                <div className="text-right">
+                  <span className="text-sm font-semibold text-text tabular-nums">
+                    {formatMs(avgTtft)}
+                  </span>
+                  <div className="text-[11px] text-text-muted">
+                    {formatTPS(avgThroughput)} tok/s
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Service Alerts + Top Providers combined card — half width */}
+        <div className="bg-bg-card border border-border rounded-lg overflow-hidden">
+          <div className="px-4 py-2.5 bg-bg-subtle border-b border-border flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <AlertTriangle
+                size={15}
+                className={cooldowns.length > 0 ? 'text-warning' : 'text-text-muted'}
+              />
+              <h3 className="font-heading text-sm font-semibold text-text">
+                Alerts &amp; Providers
+              </h3>
+            </div>
+            {cooldowns.length > 0 && (
+              <button
+                onClick={handleClearCooldowns}
+                className="text-[11px] text-warning hover:text-warning/80 transition-colors"
+              >
+                Clear All
+              </button>
+            )}
+          </div>
+          {cooldowns.length > 0 && (
+            <div className="divide-y divide-border border-b border-warning/30">
               {Object.entries(groupedCooldowns).map(([key, modelCooldowns]) => {
                 const [provider, model] = key.split(':');
-                const hasAccountId = modelCooldowns.some((cooldown) => cooldown.accountId);
-                const maxTime = Math.max(
-                  ...modelCooldowns.map((cooldown) => cooldown.timeRemainingMs)
-                );
+                const maxTime = Math.max(...modelCooldowns.map((c) => c.timeRemainingMs));
                 const minutes = Math.ceil(maxTime / 60000);
                 const modelDisplay = model || 'all models';
-
-                let statusText: string;
-                if (hasAccountId && modelCooldowns.length > 1) {
-                  statusText = `${modelDisplay} has ${modelCooldowns.length} accounts on cooldown for up to ${minutes} minutes`;
-                } else if (hasAccountId && modelCooldowns.length === 1) {
-                  statusText = `${modelDisplay} has 1 account on cooldown for ${minutes} minutes`;
-                } else {
-                  statusText = `${modelDisplay} is on cooldown for ${minutes} minutes`;
-                }
-
                 return (
-                  <div
-                    key={key}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '8px',
-                      padding: '8px',
-                      backgroundColor: 'rgba(255, 171, 0, 0.1)',
-                      borderRadius: '4px',
-                    }}
-                  >
-                    <AlertTriangle size={16} color="var(--color-warning)" />
-                    <span style={{ fontWeight: 500 }}>
-                      {normalizeTelemetryLabel(provider) || 'Unknown Provider'}
+                  <div key={key} className="px-3 py-2 flex items-center gap-2 bg-warning/5">
+                    <AlertTriangle size={12} className="text-warning shrink-0" />
+                    <span className="text-xs font-medium text-text">
+                      {normalizeTelemetryLabel(provider) || 'Unknown'}
                     </span>
-                    <span style={{ color: 'var(--color-text-secondary)' }}>{statusText}</span>
+                    <span className="text-xs text-text-muted truncate">
+                      {modelDisplay} — {minutes}m
+                    </span>
                   </div>
                 );
               })}
             </div>
           )}
-        </Card>
-      </div>
-
-      <div className="mb-4">
-        <Card
-          title="Top Providers (Live Window)"
-          extra={<span className="text-xs text-text-secondary">Top 6 by requests</span>}
-          onClick={() => openModal('provider')}
-          style={{ cursor: 'pointer' }}
-          className="hover:shadow-lg hover:border-primary/30 transition-all"
-        >
-          {providerRows.length === 0 ? (
-            <div className="text-text-secondary text-sm py-2">
-              No provider activity in the last {LIVE_WINDOW_MINUTES} minutes.
-            </div>
-          ) : (
-            <div className="space-y-2">
-              {providerRows.map((row) => (
-                <div
-                  key={row.provider}
-                  className="rounded-md border border-border-glass bg-bg-glass px-3 py-2"
-                >
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <span className="text-sm text-text font-medium">{row.provider}</span>
-                    <span className="text-xs text-text-secondary">
-                      {formatNumber(row.requests, 0)} requests
+          <div className="divide-y divide-border">
+            {providerRows.length === 0 ? (
+              <div className="px-3 py-3 text-xs text-text-muted">
+                No provider activity in the last {LIVE_WINDOW_MINUTES} minutes.
+              </div>
+            ) : (
+              providerRows.map((row) => (
+                <div key={row.provider} className="px-3 py-2">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-xs font-medium text-text">{row.provider}</span>
+                    <span className="text-xs text-text-muted tabular-nums">
+                      {formatNumber(row.requests, 0)} req
                     </span>
                   </div>
-                  <div className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs text-text-secondary">
-                    <span>Success: {row.successRate.toFixed(1)}%</span>
-                    <span>Avg latency: {formatMs(row.avgLatency)}</span>
-                    <span>Cost: {formatCost(row.totalCost, 6)}</span>
+                  <div className="flex gap-3 mt-0.5 text-[11px] text-text-muted">
+                    <span>{row.successRate.toFixed(1)}% ok</span>
+                    <span>{formatMs(row.avgLatency)}</span>
+                    <span className="text-info">{formatCost(row.totalCost, 6)}</span>
                   </div>
                 </div>
-              ))}
-            </div>
-          )}
-        </Card>
+              ))
+            )}
+          </div>
+        </div>
       </div>
 
       <div
@@ -1312,31 +1319,6 @@ export const LiveTab: React.FC<LiveTabProps> = ({ pollInterval, onPollIntervalCh
               </ResponsiveContainer>
             </div>
           )}
-        </Card>
-      </div>
-
-      <div
-        className="grid gap-4 mb-4 flex-col lg:flex-row"
-        style={{ gridTemplateColumns: '1fr 1fr' }}
-      >
-        <Card
-          title="Provider Pulse Details (5m)"
-          extra={<span className="text-xs text-text-secondary">Requests + success rate</span>}
-          onClick={() => openModal('provider')}
-          style={{ cursor: 'pointer' }}
-          className="hover:shadow-lg hover:border-primary/30 transition-all"
-        >
-          {renderPulseList(providerPulseRows, 'No provider traffic in the selected live window.')}
-        </Card>
-
-        <Card
-          title="Model Pulse (5m)"
-          extra={<span className="text-xs text-text-secondary">Top 8 models</span>}
-          onClick={() => openModal('model')}
-          style={{ cursor: 'pointer' }}
-          className="hover:shadow-lg hover:border-primary/30 transition-all"
-        >
-          {renderPulseList(modelPulseRows, 'No model traffic in the selected live window.')}
         </Card>
       </div>
 

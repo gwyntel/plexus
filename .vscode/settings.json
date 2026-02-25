@@ -7,8 +7,5 @@
   },
   "tailwindCSS.includeLanguages": {
     "plaintext": "tailwindcss"
-  },
-  "chat.tools.terminal.autoApprove": {
-    "cp": true
   }
 }
