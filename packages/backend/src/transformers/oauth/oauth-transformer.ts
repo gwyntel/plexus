@@ -240,7 +240,20 @@ export class OAuthTransformer implements Transformer {
   ): Promise<any> {
     const authManager = OAuthAuthManager.getInstance();
     const apiKey = await authManager.getApiKey(provider, accountId);
-    const model = this.getPiAiModel(provider, modelId);
+    const model = { ...this.getPiAiModel(provider, modelId) };
+
+    // GitHub Copilot Business account fix:
+    // pi-ai extracts proxy-ep from the token and incorrectly derives api.business.githubcopilot.com
+    // as the baseUrl. This endpoint only supports NES/autocomplete. Chat/Claude models must
+    // use the standard api.githubcopilot.com endpoint.
+    if (
+      provider === 'github-copilot' &&
+      apiKey.includes('proxy-ep=proxy.business.githubcopilot.com')
+    ) {
+      logger.debug(`${this.name}: GitHub Business account detected; forcing standard API endpoint`);
+      model.baseUrl = 'https://api.githubcopilot.com';
+    }
+
     const rawOptions = { ...(options ?? {}) };
     const clientHeaders = rawOptions.clientHeaders as Record<string, unknown> | undefined;
     delete rawOptions.clientHeaders;
