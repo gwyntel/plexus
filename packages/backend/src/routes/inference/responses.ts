@@ -53,6 +53,19 @@ export async function registerResponsesRoute(
 
       const transformer = new ResponsesTransformer();
 
+      // Helper to normalize input into the standardized array format
+      function normalizeInput(input: unknown): Array<{ type: string; role: string; content: Array<{ type: string; text: string }> }> {
+        return Array.isArray(input)
+          ? input as any[]
+          : [
+              {
+                type: 'message',
+                role: 'user',
+                content: [{ type: 'input_text', text: String(input) }],
+              },
+            ];
+      }
+
       // Check for previous_response_id and load context
       if (body.previous_response_id) {
         const previousResponse = await responsesStorage.getResponse(body.previous_response_id);
@@ -69,15 +82,7 @@ export async function registerResponsesRoute(
 
         // Prepend previous output items to input
         const previousItems = JSON.parse(previousResponse.outputItems);
-        const currentInput = Array.isArray(body.input)
-          ? body.input
-          : [
-              {
-                type: 'message',
-                role: 'user',
-                content: [{ type: 'input_text', text: body.input }],
-              },
-            ];
+        const currentInput = normalizeInput(body.input);
         body.input = [...previousItems, ...currentInput];
       }
 
@@ -100,15 +105,7 @@ export async function registerResponsesRoute(
 
         // Prepend conversation items to input
         const conversationItems = JSON.parse(conversation.items);
-        const currentInput = Array.isArray(body.input)
-          ? body.input
-          : [
-              {
-                type: 'message',
-                role: 'user',
-                content: [{ type: 'input_text', text: body.input }],
-              },
-            ];
+        const currentInput = normalizeInput(body.input);
         body.input = [...conversationItems, ...currentInput];
       }
 
