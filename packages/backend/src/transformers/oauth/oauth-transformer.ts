@@ -113,7 +113,14 @@ export class OAuthTransformer implements Transformer {
     }
 
     if (request.reasoning?.effort) {
-      options.reasoningEffort = request.reasoning.effort;
+      // pi-ai uses `reasoning` (not `reasoningEffort`) for ThinkingLevel
+      options.reasoning = request.reasoning.effort;
+    }
+    if (request.reasoning?.max_tokens !== undefined) {
+      // pi-ai uses thinkingBudgets to set per-level token budgets;
+      // apply the budget to whichever level is active (or 'high' as default)
+      const level = request.reasoning.effort ?? 'high';
+      options.thinkingBudgets = { [level]: request.reasoning.max_tokens };
     }
     if (request.reasoning?.summary) {
       options.reasoningSummary = request.reasoning.summary;

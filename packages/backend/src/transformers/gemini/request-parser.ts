@@ -68,9 +68,12 @@ export async function parseGeminiRequest(input: any): Promise<UnifiedChatRequest
 
   // Map thinking config
   if (generationConfig.thinkingConfig) {
+    const thinkingLevel = generationConfig.thinkingConfig.thinkingLevel as string | undefined;
     unifiedChatRequest.reasoning = {
       enabled: generationConfig.thinkingConfig.includeThoughts,
       max_tokens: generationConfig.thinkingConfig.thinkingBudget,
+      // Map Gemini's thinkingLevel (NONE/LOW/MEDIUM/HIGH) to unified ThinkLevel
+      effort: thinkingLevel ? (thinkingLevel.toLowerCase() as any) : undefined,
     };
   }
 

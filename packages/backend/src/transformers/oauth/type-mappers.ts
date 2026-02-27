@@ -26,6 +26,14 @@ export function unifiedToContext(request: UnifiedChatRequest): Context {
       : undefined,
   };
 
+  // Handle Gemini-style systemInstruction (stored separately from messages)
+  if (request.systemInstruction) {
+    const content = extractTextContent(request.systemInstruction.content);
+    if (content) {
+      context.systemPrompt = content;
+    }
+  }
+
   for (const msg of request.messages) {
     if (msg.role === 'system') {
       const content = extractTextContent(msg.content);
@@ -218,16 +226,34 @@ function unifiedToolToPiAi(tool: UnifiedTool): PiAiTool {
     throw new Error(`Tool is missing function declaration: ${tool.type}`);
   }
 
-  const parameters = Type.Object(
-    Object.fromEntries(
-      Object.entries(tool.function.parameters?.properties || {}).map(
-        ([key, value]: [string, any]) => [key, mapPropertyValue(value)]
-      )
-    ),
-    {
-      additionalProperties: tool.function.parameters?.additionalProperties ?? false,
-    }
-  );
+  let parameters;
+
+  // Prefer parametersJsonSchema (used by Gemini-sourced tools) over parameters
+  if (tool.function.parametersJsonSchema) {
+    const schema = tool.function.parametersJsonSchema;
+    parameters = Type.Object(
+      Object.fromEntries(
+        Object.entries(schema.properties || {}).map(([key, value]: [string, any]) => [
+          key,
+          mapPropertyValue(value),
+        ])
+      ),
+      {
+        additionalProperties: schema.additionalProperties ?? false,
+      }
+    );
+  } else {
+    parameters = Type.Object(
+      Object.fromEntries(
+        Object.entries(tool.function.parameters?.properties || {}).map(
+          ([key, value]: [string, any]) => [key, mapPropertyValue(value)]
+        )
+      ),
+      {
+        additionalProperties: tool.function.parameters?.additionalProperties ?? false,
+      }
+    );
+  }
 
   return {
     name: tool.function.name,
