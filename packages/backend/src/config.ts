@@ -148,6 +148,13 @@ const WisdomGateQuotaCheckerOptionsSchema = z.object({
   endpoint: z.string().url().optional(),
 });
 
+const GeminiCliQuotaCheckerOptionsSchema = z.object({
+  endpoint: z.string().url().optional(),
+  userAgent: z.string().trim().min(1).optional(),
+  googApiClient: z.string().trim().min(1).optional(),
+  clientMetadata: z.string().trim().min(1).optional(),
+});
+
 const ApertisQuotaCheckerOptionsSchema = z.object({
   session: z.string().trim().min(1, 'Apertis session cookie is required'),
   endpoint: z.string().url().optional(),
@@ -269,6 +276,13 @@ const ProviderQuotaCheckerSchema = z.discriminatedUnion('type', [
     intervalMinutes: z.number().min(1).default(30),
     id: z.string().trim().min(1).optional(),
     options: PoeQuotaCheckerOptionsSchema.optional().default({}),
+  }),
+  z.object({
+    type: z.literal('gemini-cli'),
+    enabled: z.boolean().default(true),
+    intervalMinutes: z.number().min(1).default(30),
+    id: z.string().trim().min(1).optional(),
+    options: GeminiCliQuotaCheckerOptionsSchema.optional().default({}),
   }),
 ]);
 

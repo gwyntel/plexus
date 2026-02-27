@@ -28,6 +28,8 @@ export { ApertisQuotaDisplay } from './ApertisQuotaDisplay';
 export { ApertisQuotaConfig } from './ApertisQuotaConfig';
 export { PoeQuotaDisplay } from './PoeQuotaDisplay';
 export { PoeQuotaConfig } from './PoeQuotaConfig';
+export { GeminiCliQuotaDisplay } from './GeminiCliQuotaDisplay';
+export { GeminiCliQuotaConfig } from './GeminiCliQuotaConfig';
 export { CombinedBalancesCard } from './CombinedBalancesCard';
 export { CompactBalancesCard } from './CompactBalancesCard';
 export { CompactQuotasCard } from './CompactQuotasCard';
