@@ -1,5 +1,22 @@
 # Changelog
 
+## v0.17.9 - 2026-02-28
+
+### v0.17.9: Quota Checker Enhancements and Codebase Refactoring
+
+### Release Notes - v0.17.9
+
+This release introduces improvements to quota management implementations and general codebase maintenance.
+
+#### Improvements and Bug Fixes
+- **Quota Services**:
+  - Finalized the `gemini-cli` checker implementation and corrected an issue with the authentication header ([5706bd0](https://github.com/mcowger/plexus/commit/5706bd0)).
+  - Configured a default endpoint for the `WisdomGateQuotaChecker` ([beb6479](https://github.com/mcowger/plexus/commit/beb6479)).
+- **Maintenance**:
+  - Refactored various project files to improve readability and ensure architectural consistency across the codebase ([382415e](https://github.com/mcowger/plexus/commit/382415e)).
+
+The docker image has been updated and can be found at ghcr.io/mcowger/plexus:latest
+
 ## v0.17.8 - 2026-02-27
 
 ### v0.17.8: Gemini Stream Optimization, Token Accounting, and Anthropic Header Isolation
