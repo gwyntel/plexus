@@ -53,18 +53,21 @@ export class GeminiCliQuotaChecker extends QuotaChecker {
       const apiKey = await this.resolveApiKey();
 
       const headers: Record<string, string> = {
-        Authorization: `Bearer ${apiKey}`,
+        Authorization: `Bearer ${apiKey.slice(0, 10)}...${apiKey.slice(-5)}`,
         'Content-Type': 'application/json',
-        'User-Agent': this.userAgent,
-        'X-Goog-Api-Client': this.googApiClient,
-        'Client-Metadata': this.clientMetadata,
       };
 
-      logger.silly(`[gemini-cli-checker] Requesting usage from ${this.endpoint}`);
+      logger.info(
+        `[gemini-cli-checker] Requesting quota from ${this.endpoint} with headers: ${JSON.stringify(headers)}`
+      );
 
       const response = await fetch(this.endpoint, {
-        method: 'GET',
-        headers,
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: '{}',
       });
 
       const bodyText = await response.text();
@@ -106,13 +109,14 @@ export class GeminiCliQuotaChecker extends QuotaChecker {
     }
 
     const provider =
-      this.getOption<string>('oauthProvider', 'google-gemini-oauth').trim() ||
-      'google-gemini-oauth';
+      this.getOption<string>('oauthProvider', 'google-gemini-cli').trim() ||
+      'google-gemini-cli';
     const oauthAccountId = this.getOption<string>('oauthAccountId', '').trim();
     const authManager = OAuthAuthManager.getInstance();
 
+    let apiKeyResult: any;
     try {
-      return oauthAccountId
+      apiKeyResult = oauthAccountId
         ? await authManager.getApiKey(provider as OAuthProvider, oauthAccountId)
         : await authManager.getApiKey(provider as OAuthProvider);
     } catch (error) {
@@ -120,10 +124,26 @@ export class GeminiCliQuotaChecker extends QuotaChecker {
       logger.info(
         `[gemini-cli-checker] Reloaded OAuth auth file and retrying token retrieval for provider '${provider}'.`
       );
-      return oauthAccountId
+      apiKeyResult = oauthAccountId
         ? await authManager.getApiKey(provider as OAuthProvider, oauthAccountId)
         : await authManager.getApiKey(provider as OAuthProvider);
     }
+
+    // Handle both string and object responses from getApiKey
+    if (typeof apiKeyResult === 'object' && apiKeyResult !== null && 'token' in apiKeyResult) {
+      return apiKeyResult.token;
+    }
+
+    if (typeof apiKeyResult === 'string' && apiKeyResult.startsWith('{')) {
+      try {
+        const parsed = JSON.parse(apiKeyResult);
+        if (parsed.token) return parsed.token;
+      } catch (e) {
+        // Not JSON, return as is
+      }
+    }
+
+    return apiKeyResult;
   }
 
   private extractBuckets(data: GeminiQuotaResponse): GeminiBucket[] {
@@ -134,42 +154,79 @@ export class GeminiCliQuotaChecker extends QuotaChecker {
   }
 
   private buildWindows(buckets: GeminiBucket[]): QuotaWindow[] {
-    return buckets.map((bucket, index) => {
-      const remainingFraction = bucket.remainingFraction ?? 1.0;
-      const usedPercent = (1.0 - remainingFraction) * 100;
-      const remainingPercent = remainingFraction * 100;
-
-      let resetsAt: Date | undefined;
-      if (bucket.resetAt) {
-        if (typeof bucket.resetAt === 'number') {
-          // Detect if seconds or ms
-          const millis = bucket.resetAt > 1e12 ? bucket.resetAt : bucket.resetAt * 1000;
-          resetsAt = new Date(millis);
-        } else {
-          const parsed = new Date(bucket.resetAt);
-          if (!isNaN(parsed.getTime())) {
-            resetsAt = parsed;
-          }
-        }
+    // Aggregate quotas by model type to match reference implementation
+    const quotas: Record<string, number> = {};
+    for (const bucket of buckets) {
+      const model = bucket.name || bucket.description || 'unknown';
+      const frac = bucket.remainingFraction ?? 1;
+      if (!quotas[model] || frac < quotas[model]) {
+        quotas[model] = frac;
       }
+    }
 
-      // Default window types based on index or name if we can guess
-      let windowType: QuotaWindowType = 'five_hour';
-      const name = (bucket.name || bucket.description || '').toLowerCase();
-      if (name.includes('day') || name.includes('daily')) windowType = 'daily';
-      else if (name.includes('week')) windowType = 'weekly';
-      else if (name.includes('month')) windowType = 'monthly';
-      else if (index > 0) windowType = 'custom';
+    const windows: QuotaWindow[] = [];
+    let proMin = 1;
+    let flashMin = 1;
+    let hasProModel = false;
+    let hasFlashModel = false;
 
-      return this.createWindow(
-        windowType,
-        100,
-        usedPercent,
-        remainingPercent,
-        'percentage',
-        resetsAt,
-        bucket.description || bucket.name || `Gemini Quota ${index + 1}`
+    for (const [model, frac] of Object.entries(quotas)) {
+      if (model.toLowerCase().includes('pro')) {
+        hasProModel = true;
+        if (frac < proMin) proMin = frac;
+      }
+      if (model.toLowerCase().includes('flash')) {
+        hasFlashModel = true;
+        if (frac < flashMin) flashMin = frac;
+      }
+    }
+
+    if (hasProModel) {
+      windows.push(
+        this.createWindow(
+          'five_hour',
+          100,
+          (1 - proMin) * 100,
+          proMin * 100,
+          'percentage',
+          undefined,
+          'Pro Plan Quota'
+        )
       );
-    });
+    }
+    if (hasFlashModel) {
+      windows.push(
+        this.createWindow(
+          'five_hour',
+          100,
+          (1 - flashMin) * 100,
+          flashMin * 100,
+          'percentage',
+          undefined,
+          'Flash Plan Quota'
+        )
+      );
+    }
+
+    // If no Pro/Flash models were matched but we have buckets, fall back to individual buckets
+    if (windows.length === 0 && buckets.length > 0) {
+      return buckets.map((bucket, index) => {
+        const remainingFraction = bucket.remainingFraction ?? 1.0;
+        const usedPercent = (1.0 - remainingFraction) * 100;
+        const remainingPercent = remainingFraction * 100;
+
+        return this.createWindow(
+          'five_hour',
+          100,
+          usedPercent,
+          remainingPercent,
+          'percentage',
+          undefined,
+          bucket.description || bucket.name || `Gemini Quota ${index + 1}`
+        );
+      });
+    }
+
+    return windows;
   }
 }

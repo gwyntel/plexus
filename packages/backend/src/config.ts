@@ -707,6 +707,7 @@ function buildProviderQuotaConfigs(config: z.infer<typeof RawPlexusConfigSchema>
     'openai-codex': { type: 'openai-codex', intervalMinutes: 5 },
     'claude-code': { type: 'claude-code', intervalMinutes: 5 },
     'github-copilot': { type: 'copilot', intervalMinutes: 5 },
+    'google-gemini-cli': { type: 'gemini-cli', intervalMinutes: 5 },
   };
 
   for (const [providerId, providerConfig] of Object.entries(config.providers)) {
