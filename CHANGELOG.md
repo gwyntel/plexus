@@ -1,5 +1,20 @@
 # Changelog
 
+## v0.17.11 - 2026-03-01
+
+### v0.17.11: Enhanced Copilot Quota Metrics and Fallback Logic
+
+## New Features
+
+- **Enhanced Copilot Quota Display**: Added detailed usage metrics and implemented robust fallback logic for quota reporting. [[a670930](https://github.com/mcowger/plexus/commit/a670930)]
+
+## Changes
+
+- feat: enhance Copilot quota display with detailed usage metrics and fallback logic ([a670930](https://github.com/mcowger/plexus/commit/a670930))
+
+---
+The docker image has been updated and can be found at ghcr.io/mcowger/plexus:latest
+
 ## v0.17.10 - 2026-03-01
 
 ### v0.17.10: Enhanced Reasoning Options, Gemini 3 Integration, and Antigravity Quota Management
