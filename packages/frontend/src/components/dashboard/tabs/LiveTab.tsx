@@ -1,14 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Activity,
   AlertTriangle,
   Clock,
-  Database,
   Info,
   RefreshCw,
   Signal,
   X,
-  Zap,
 } from 'lucide-react';
 import {
   AreaChart,
@@ -52,12 +49,6 @@ type MinuteBucket = {
   tokens: number;
 };
 
-type PulseRow = {
-  label: string;
-  requests: number;
-  successRate: number;
-};
-
 type ModelTimelineSeries = {
   key: string;
   label: string;
@@ -86,7 +77,6 @@ interface LiveTabProps {
 
 const LIVE_WINDOW_MINUTES = 5;
 const LIVE_WINDOW_MS = LIVE_WINDOW_MINUTES * 60 * 1000;
-const POLL_INTERVAL_MS = 10000;
 const RECENT_REQUEST_LIMIT = 200;
 const POLL_INTERVAL_OPTIONS = [5000, 10000, 30000] as const;
 const MODEL_TIMELINE_MAX_SERIES = 5;
@@ -225,11 +215,11 @@ export const LiveTab: React.FC<LiveTabProps> = ({ pollInterval, onPollIntervalCh
     reasoningTokens: 0,
     cachedTokens: 0,
     cacheWriteTokens: 0,
+    kwhUsed: 0,
     totalCost: 0,
   });
   const [logs, setLogs] = useState<UsageRecord[]>([]);
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
-  const [timeAgo, setTimeAgo] = useState('Just now');
   const [secondsSinceUpdate, setSecondsSinceUpdate] = useState(0);
   const [isConnected, setIsConnected] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -329,11 +319,6 @@ export const LiveTab: React.FC<LiveTabProps> = ({ pollInterval, onPollIntervalCh
     const updateTime = () => {
       const seconds = Math.max(0, Math.floor((Date.now() - lastUpdated.getTime()) / 1000));
       setSecondsSinceUpdate(seconds);
-      if (seconds < 5) {
-        setTimeAgo('Just now');
-        return;
-      }
-      setTimeAgo(formatTimeAgo(seconds));
     };
 
     updateTime();
@@ -648,35 +633,6 @@ export const LiveTab: React.FC<LiveTabProps> = ({ pollInterval, onPollIntervalCh
       .sort((a, b) => b.requests - a.requests)
       .slice(0, 8);
   }, [liveRequests]);
-
-  const renderPulseList = (rows: PulseRow[], emptyText: string) => {
-    if (rows.length === 0) {
-      return <div className="text-text-secondary text-sm py-2">{emptyText}</div>;
-    }
-
-    return (
-      <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
-        {rows.map((row) => (
-          <div
-            key={row.label}
-            className="rounded-md border border-border-glass bg-bg-glass px-3 py-2"
-          >
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <span className="text-sm text-text font-medium truncate max-w-60" title={row.label}>
-                {row.label}
-              </span>
-              <span className="text-xs text-text-secondary">
-                {formatNumber(row.requests, 0)} requests
-              </span>
-            </div>
-            <div className="mt-1 text-xs text-text-secondary">
-              Success: {row.successRate.toFixed(1)}%
-            </div>
-          </div>
-        ))}
-      </div>
-    );
-  };
 
   const groupedCooldowns = useMemo(() => {
     return cooldowns.reduce(

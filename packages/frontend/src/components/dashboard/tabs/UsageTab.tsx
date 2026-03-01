@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { api, UsageData, PieChartDataPoint } from '../../../lib/api';
 import { formatNumber, formatTokens } from '../../../lib/format';
 import { Card } from '../../ui/Card';
-import { Button } from '../../ui/Button';
 import { SlicesToasted } from '../../SlicesToasted';
 import { TimeRangeSelector } from '../TimeRangeSelector';
 import {
