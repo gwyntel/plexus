@@ -20,6 +20,91 @@ import { OAuthAuthManager } from '../../services/oauth-auth-manager';
 import { unifiedToContext, piAiMessageToUnified, piAiEventToChunk } from './type-mappers';
 import { logger } from '../../utils/logger';
 
+/**
+ * Returns the pi-ai request options needed to enable thinking/reasoning for a given
+ * model API and effort level.  Each pi-ai stream implementation uses different field
+ * names:
+ *
+ * - anthropic-messages  → thinkingEnabled + (effort | thinkingBudgetTokens)
+ * - openai-responses /
+ *   openai-codex-responses → reasoningEffort
+ * - google-gemini-cli Gemini 3   → thinking.level
+ * - everything else (Gemini 2.x) → thinking.budgetTokens
+ *
+ * `reasoning` is always included for streamSimple* compatibility.
+ */
+function buildThinkingOptions(
+  modelApi: string | undefined,
+  modelId: string | undefined,
+  effort: string,
+  maxTokens?: number,
+  summary?: string,
+  textVerbosity?: string
+): Record<string, any> {
+  const BUDGET: Record<string, number> = {
+    minimal: 1024,
+    low: 2048,
+    medium: 8192,
+    high: 16384,
+  };
+
+  // streamSimple compatibility — always included regardless of API type
+  const base: Record<string, any> = { reasoning: effort };
+
+  if (
+    modelApi === 'openai-responses' ||
+    modelApi === 'openai-codex-responses' ||
+    modelApi === 'openai-completions'
+  ) {
+    // streamOpenAIResponses / streamOpenAICodexResponses / streamOpenAICompletions
+    // all check `options.reasoningEffort` when called via stream()
+    base.reasoningEffort = effort;
+    if (summary) base.reasoningSummary = summary;
+    if (textVerbosity) base.textVerbosity = textVerbosity;
+    return base;
+  }
+
+  if (modelApi === 'anthropic-messages') {
+    // streamAnthropic checks `options.thinkingEnabled` (boolean) plus either
+    // `options.effort` (adaptive models) or `options.thinkingBudgetTokens` (older models)
+    const isAdaptive =
+      modelId?.includes('opus-4-6') ||
+      modelId?.includes('opus-4.6') ||
+      modelId?.includes('sonnet-4-6') ||
+      modelId?.includes('sonnet-4.6');
+
+    base.thinkingEnabled = true;
+    if (isAdaptive) {
+      const effortMap: Record<string, string> = {
+        minimal: 'low',
+        low: 'low',
+        medium: 'medium',
+        high: 'high',
+        xhigh: modelId?.includes('opus-4-6') || modelId?.includes('opus-4.6') ? 'max' : 'high',
+      };
+      base.effort = effortMap[effort] ?? 'high';
+    } else {
+      base.thinkingBudgetTokens = maxTokens ?? BUDGET[effort] ?? 16384;
+    }
+    return base;
+  }
+
+  // Gemini providers use `options.thinking` object
+  const isGemini3 = modelId?.includes('3-pro') || modelId?.includes('3-flash');
+  if (isGemini3) {
+    const levelMap: Record<string, string> = {
+      minimal: 'MINIMAL',
+      low: 'LOW',
+      medium: 'MEDIUM',
+      high: 'HIGH',
+    };
+    base.thinking = { enabled: true, level: levelMap[effort] ?? 'HIGH' };
+  } else {
+    base.thinking = { enabled: true, budgetTokens: maxTokens ?? BUDGET[effort] ?? 16384 };
+  }
+  return base;
+}
+
 function streamFromAsyncIterable<T>(iterable: AsyncIterable<T>): ReadableStream<T> {
   const iterator = iterable[Symbol.asyncIterator]();
   let closed = false;
@@ -144,48 +229,17 @@ export class OAuthTransformer implements Transformer {
     }
 
     if (thinkingEffort) {
-      // pi-ai's stream() function expects `options.thinking` (GoogleGeminiCliOptions),
-      // NOT `options.reasoning` (which is only used by streamSimple).
-      // For Gemini 3 models, we must set `thinking.level`; for older models, `thinking.budgetTokens`.
-      const isGemini3 = request.model?.includes('3-pro') || request.model?.includes('3-flash');
-      if (isGemini3) {
-        const levelMap: Record<string, string> = {
-          minimal: 'MINIMAL',
-          low: 'LOW',
-          medium: 'MEDIUM',
-          high: 'HIGH',
-        };
-        options.thinking = {
-          enabled: true,
-          level: levelMap[thinkingEffort] ?? 'HIGH',
-        };
-      } else {
-        // Gemini 2.x models use budgetTokens
-        const budgetMap: Record<string, number> = {
-          minimal: 1024,
-          low: 2048,
-          medium: 8192,
-          high: 16384,
-        };
-        options.thinking = {
-          enabled: true,
-          budgetTokens: budgetMap[thinkingEffort] ?? 16384,
-        };
-      }
-      // Also set reasoning for streamSimple compatibility
-      options.reasoning = thinkingEffort;
-    }
-    if (request.reasoning?.max_tokens !== undefined) {
-      // Override thinking budget with explicit max_tokens if provided
-      if (options.thinking) {
-        options.thinking.budgetTokens = request.reasoning.max_tokens;
-      }
-    }
-    if (request.reasoning?.summary) {
-      options.reasoningSummary = request.reasoning.summary;
-    }
-    if (request.text?.verbosity) {
-      options.textVerbosity = request.text.verbosity;
+      Object.assign(
+        options,
+        buildThinkingOptions(
+          modelApi,
+          request.model,
+          thinkingEffort,
+          request.reasoning?.max_tokens,
+          request.reasoning?.summary,
+          request.text?.verbosity
+        )
+      );
     }
     if (request.prompt_cache_key) {
       options.sessionId = request.prompt_cache_key;
