@@ -168,7 +168,7 @@ export async function registerTranscriptionsRoute(
       const providerDiscount = unifiedResponse.plexus?.providerDiscount;
       calculateCosts(usageRecord, pricing, providerDiscount);
 
-      await usageStorage.saveRequest(usageRecord as UsageRecord);
+      usageStorage.saveRequest(usageRecord as UsageRecord);
 
       const formattedResponse = await transformer.formatResponse(unifiedResponse, response_format);
 

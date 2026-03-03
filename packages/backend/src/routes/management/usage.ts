@@ -412,19 +412,20 @@ export async function registerUsageRoutes(
       }
 
       // Live mode (default): currently in-flight requests for Live Metrics card
+      const liveNow = Date.now();
       const results = await db
         .select({
           provider: schema.requestUsage.provider,
           model: schema.requestUsage.canonicalModelName,
           count: sql<number>`COALESCE(count(*), 0)`,
-          timestamp: sql<number>`${Date.now()}`,
+          timestamp: sql<number>`${liveNow}`,
         })
         .from(schema.requestUsage)
         .where(
           and(
             isNull(schema.requestUsage.durationMs),
             isNotNull(schema.requestUsage.provider),
-            gte(schema.requestUsage.startTime, Date.now() - 60 * 60 * 1000)
+            gte(schema.requestUsage.startTime, liveNow - 60 * 60 * 1000)
           )
         )
         .groupBy(schema.requestUsage.provider, schema.requestUsage.canonicalModelName);
