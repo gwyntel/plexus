@@ -1285,6 +1285,17 @@ export const api = {
     }
   },
 
+  restart: async (): Promise<{ success: boolean; message: string }> => {
+    const res = await fetchWithAuth(`${API_BASE}/v0/management/restart`, {
+      method: 'POST',
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Failed to restart' }));
+      throw new Error(err.error || 'Failed to restart');
+    }
+    return res.json();
+  },
+
   getKeys: async (): Promise<KeyConfig[]> => {
     try {
       const yamlStr = await api.getConfig();

@@ -372,6 +372,20 @@ export async function registerConfigRoutes(fastify: FastifyInstance) {
     });
   });
 
+  // Restart endpoint - exits the process, relying on process manager to restart
+  fastify.post('/v0/management/restart', async (_request, reply) => {
+    logger.info('Restart requested via API - exiting process');
+
+    // Send response before exiting
+    reply.send({ success: true, message: 'Restarting Plexus...' });
+
+    // Give the response time to be sent, then exit
+    // The process manager (PM2, Docker, systemd) will restart the service
+    setTimeout(() => {
+      process.exit(0);
+    }, 100);
+  });
+
   // Support YAML and Plain Text payloads for management API
   fastify.addContentTypeParser(
     ['text/plain', 'application/x-yaml', 'text/yaml'],
