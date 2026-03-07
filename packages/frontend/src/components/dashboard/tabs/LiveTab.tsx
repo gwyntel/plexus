@@ -166,22 +166,31 @@ type ModelTimelineBucket = Record<string, string | number> & {
 /** Filter for the request stream card: show all, only successes, or only errors */
 type StreamFilter = 'all' | 'success' | 'error';
 
+/** Available live window periods in minutes */
+const LIVE_WINDOW_OPTIONS = [
+  { value: 5, label: '5m' },
+  { value: 15, label: '15m' },
+  { value: 30, label: '30m' },
+  { value: 1440, label: '1d' },
+  { value: 10080, label: '7d' },
+  { value: 43200, label: '30d' },
+] as const;
+
 /** Props passed to LiveTab from the parent dashboard layout */
 interface LiveTabProps {
   /** Current polling interval in milliseconds (5000 / 10000 / 30000) */
   pollInterval: number;
   /** Callback to propagate poll interval changes to the parent (for persistence) */
   onPollIntervalChange: (interval: number) => void;
+  /** Current live window period in minutes (5 / 15 / 30 / 1440 / 10080 / 43200) */
+  liveWindowPeriod?: number;
+  /** Callback to propagate live window period changes to the parent */
+  onLiveWindowPeriodChange?: (period: number) => void;
 }
 
 //
 // CONSTANTS
 //
-
-/** Rolling window size for the "live" view -- all charts and summaries use this */
-const LIVE_WINDOW_MINUTES = 5;
-/** Pre-computed millisecond equivalent of LIVE_WINDOW_MINUTES for date filtering */
-const LIVE_WINDOW_MS = LIVE_WINDOW_MINUTES * 60 * 1000;
 
 /** Maximum number of recent requests fetched from the API per poll cycle */
 
@@ -568,7 +577,12 @@ const CooldownRow: React.FC<CooldownRowProps> = ({
  * All visualised data is derived from a rolling 5-minute window of the most
  * recent 200 usage records, refreshed at a configurable polling interval.
  */
-export const LiveTab: React.FC<LiveTabProps> = ({ pollInterval, onPollIntervalChange }) => {
+export const LiveTab: React.FC<LiveTabProps> = ({
+  pollInterval,
+  onPollIntervalChange,
+  liveWindowPeriod = 5,
+  onLiveWindowPeriodChange,
+}) => {
   // ---------------------------------------------------------------------------
   // STATE -- API data from polling
   // ---------------------------------------------------------------------------
@@ -612,6 +626,17 @@ export const LiveTab: React.FC<LiveTabProps> = ({ pollInterval, onPollIntervalCh
   useEffect(() => {
     setPollIntervalMs(pollInterval);
   }, [pollInterval]);
+
+  /** Local copy of the live window period -- synced from props via useEffect below */
+  const [liveWindowMinutes, setLiveWindowMinutes] = useState(liveWindowPeriod);
+
+  /** Keep local live window period in sync when the parent changes the prop */
+  useEffect(() => {
+    setLiveWindowMinutes(liveWindowPeriod);
+  }, [liveWindowPeriod]);
+
+  /** Computed: window size in milliseconds for filtering */
+  const liveWindowMs = useMemo(() => liveWindowMinutes * 60 * 1000, [liveWindowMinutes]);
 
   /**
    * Whether the browser tab is currently visible. Polling is paused when the
@@ -983,19 +1008,19 @@ export const LiveTab: React.FC<LiveTabProps> = ({ pollInterval, onPollIntervalCh
   // ---------------------------------------------------------------------------
 
   /**
-   * Filters `logs` to only those within the rolling 5-minute window and sorts
+   * Filters `logs` to only those within the rolling live window and sorts
    * them newest-first. This is the foundational dataset that all other memos
    * derive from, ensuring a single consistent snapshot per render.
    */
   const liveRequests = useMemo(() => {
-    const cutoff = Date.now() - LIVE_WINDOW_MS;
+    const cutoff = Date.now() - liveWindowMs;
     return logs
       .filter((request) => {
         const requestTime = new Date(request.date).getTime();
         return Number.isFinite(requestTime) && requestTime >= cutoff;
       })
       .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-  }, [logs]);
+  }, [logs, liveWindowMs]);
 
   /** Applies the stream filter (all/success/error) on top of liveRequests */
   const filteredLiveRequests = useMemo(() => {
@@ -1051,13 +1076,13 @@ export const LiveTab: React.FC<LiveTabProps> = ({ pollInterval, onPollIntervalCh
   /**
    * Buckets liveRequests into per-minute time slots for the timeline area chart.
    * Pre-creates empty buckets for every minute in the window to ensure the chart
-   * always shows the full 5-minute range, even if some minutes have zero traffic.
+   * always shows the full window range, even if some minutes have zero traffic.
    */
   const minuteSeries = useMemo(() => {
     const buckets = new Map<string, MinuteBucket>();
     const now = Date.now();
 
-    for (let i = LIVE_WINDOW_MINUTES - 1; i >= 0; i--) {
+    for (let i = liveWindowMinutes - 1; i >= 0; i--) {
       const bucketDate = new Date(now - i * 60000);
       const key = bucketDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       buckets.set(key, { time: key, requests: 0, errors: 0, tokens: 0 });
@@ -1118,7 +1143,7 @@ export const LiveTab: React.FC<LiveTabProps> = ({ pollInterval, onPollIntervalCh
     const buckets = new Map<string, ModelTimelineBucket>();
     const now = Date.now();
 
-    for (let i = LIVE_WINDOW_MINUTES - 1; i >= 0; i--) {
+    for (let i = liveWindowMinutes - 1; i >= 0; i--) {
       const bucketDate = new Date(now - i * 60000);
       const key = bucketDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
       const bucket: ModelTimelineBucket = {
@@ -1200,8 +1225,8 @@ export const LiveTab: React.FC<LiveTabProps> = ({ pollInterval, onPollIntervalCh
     summary.requestCount > 0 ? (summary.successCount / summary.requestCount) * 100 : 0;
   /** Data is considered "stale" if 3x the poll interval has elapsed without an update */
   const isStale = secondsSinceUpdate > Math.ceil((pollIntervalMs * 3) / 1000);
-  const tokensPerMinute = summary.totalTokens / LIVE_WINDOW_MINUTES;
-  // const costPerMinute = summary.totalCost / LIVE_WINDOW_MINUTES; // Unused
+  const tokensPerMinute = summary.totalTokens / liveWindowMinutes;
+  // const costPerMinute = summary.totalCost / liveWindowMinutes; // Unused
   const avgLatency = summary.requestCount > 0 ? summary.totalLatency / summary.requestCount : 0;
   // const avgTtft = summary.requestCount > 0 ? summary.totalTtft / summary.requestCount : 0; // Unused
   // const throughputSamples = liveRequests // Unused
@@ -1980,7 +2005,7 @@ export const LiveTab: React.FC<LiveTabProps> = ({ pollInterval, onPollIntervalCh
                   <div className="divide-y divide-border">
                     <div className="px-3 py-1.5 bg-bg-subtle/50">
                       <span className="text-[11px] font-semibold text-text-muted uppercase tracking-wider">
-                        Live ({LIVE_WINDOW_MINUTES}m)
+                        Live ({liveWindowMinutes}m)
                       </span>
                     </div>
                     <div className="px-3 py-2 flex items-center justify-between">
@@ -2074,7 +2099,7 @@ export const LiveTab: React.FC<LiveTabProps> = ({ pollInterval, onPollIntervalCh
                   <div className="flex-1 divide-y divide-border overflow-y-auto">
                     {providerRows.length === 0 ? (
                       <div className="px-3 py-3 text-xs text-text-muted">
-                        No provider activity in the last {LIVE_WINDOW_MINUTES} minutes.
+                        No provider activity in the last {liveWindowMinutes} minutes.
                       </div>
                     ) : (
                       providerRows.map((row) => (
@@ -2330,7 +2355,7 @@ export const LiveTab: React.FC<LiveTabProps> = ({ pollInterval, onPollIntervalCh
                 </div>
               ) : minuteSeries.length === 0 ? (
                 <div className="h-56 flex items-center justify-center text-text-secondary">
-                  No requests in the last {LIVE_WINDOW_MINUTES} minutes
+                  No requests in the last {liveWindowMinutes} minutes
                 </div>
               ) : (
                 <div className="h-56">
@@ -2448,7 +2473,7 @@ export const LiveTab: React.FC<LiveTabProps> = ({ pollInterval, onPollIntervalCh
                 </div>
               ) : modelTimeline.series.length === 0 ? (
                 <div className="h-56 flex items-center justify-center text-text-secondary">
-                  No model stack data in the last {LIVE_WINDOW_MINUTES} minutes
+                  No model stack data in the last {liveWindowMinutes} minutes
                 </div>
               ) : (
                 <div className="h-56">
@@ -2833,7 +2858,7 @@ export const LiveTab: React.FC<LiveTabProps> = ({ pollInterval, onPollIntervalCh
 
         <Badge
           status={isConnected && !isStale ? 'connected' : 'warning'}
-          secondaryText={'Window: last ' + LIVE_WINDOW_MINUTES + 'm'}
+          secondaryText={'Window: last ' + liveWindowMinutes + 'm'}
           style={{ minWidth: '210px' }}
         >
           {isConnected
@@ -2870,6 +2895,20 @@ export const LiveTab: React.FC<LiveTabProps> = ({ pollInterval, onPollIntervalCh
             </Button>
           );
         })}
+        <span className="text-xs text-text-secondary">|</span>
+        {LIVE_WINDOW_OPTIONS.map((option) => (
+          <Button
+            key={option.value}
+            size="sm"
+            variant={liveWindowMinutes === option.value ? 'primary' : 'secondary'}
+            onClick={() => {
+              setLiveWindowMinutes(option.value);
+              onLiveWindowPeriodChange?.(option.value);
+            }}
+          >
+            {option.label}
+          </Button>
+        ))}
         <span className="text-xs text-text-muted">
           {isVisible ? 'Tab active' : 'Tab hidden'} - data refresh resumes on focus.
         </span>

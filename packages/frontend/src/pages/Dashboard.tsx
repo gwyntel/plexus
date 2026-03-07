@@ -7,6 +7,7 @@ import { PerformanceTab } from '../components/dashboard/tabs/PerformanceTab';
 
 type TabId = 'live' | 'usage' | 'performance';
 type TimeRange = 'hour' | 'day' | 'week' | 'month';
+type LiveWindowPeriod = 5 | 15 | 30 | 1440 | 10080 | 43200; // minutes: 5m, 15m, 30m, 1d, 7d, 30d
 
 const TABS: { id: TabId; label: string; icon: React.ReactNode }[] = [
   { id: 'live', label: 'Live Metrics', icon: <Zap size={15} /> },
@@ -15,6 +16,7 @@ const TABS: { id: TabId; label: string; icon: React.ReactNode }[] = [
 ];
 
 const DEFAULT_POLL_INTERVAL = 10000;
+const DEFAULT_LIVE_WINDOW: LiveWindowPeriod = 5;
 
 export const Dashboard = () => {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -23,6 +25,7 @@ export const Dashboard = () => {
 
   const [usageTimeRange, setUsageTimeRange] = useState<TimeRange>('day');
   const [pollInterval, setPollInterval] = useState<number>(DEFAULT_POLL_INTERVAL);
+  const [liveWindowPeriod, setLiveWindowPeriod] = useState<LiveWindowPeriod>(DEFAULT_LIVE_WINDOW);
 
   const setTab = (id: TabId) => {
     setSearchParams(id === 'live' ? {} : { tab: id });
@@ -59,7 +62,12 @@ export const Dashboard = () => {
 
       <div className="flex-1 overflow-auto">
         {activeTab === 'live' && (
-          <LiveTab pollInterval={pollInterval} onPollIntervalChange={setPollInterval} />
+          <LiveTab
+            pollInterval={pollInterval}
+            onPollIntervalChange={setPollInterval}
+            liveWindowPeriod={liveWindowPeriod}
+            onLiveWindowPeriodChange={(period: number) => setLiveWindowPeriod(period as LiveWindowPeriod)}
+          />
         )}
         {activeTab === 'usage' && (
           <UsageTab timeRange={usageTimeRange} onTimeRangeChange={setUsageTimeRange} />
