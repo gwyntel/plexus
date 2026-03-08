@@ -43,6 +43,18 @@ function inferProviderTypes(apiBaseUrl?: string | Record<string, string>): strin
   }
 }
 
+export async function verifyAdminKey(key: string): Promise<boolean> {
+  try {
+    const res = await fetch('/v0/management/auth/verify', {
+      method: 'GET',
+      headers: { 'x-admin-key': key },
+    });
+    return res.status === 200;
+  } catch {
+    return false;
+  }
+}
+
 const fetchWithAuth = async (url: string, options: RequestInit = {}) => {
   const headers = new Headers(options.headers || {});
   const adminKey = localStorage.getItem('plexus_admin_key');
