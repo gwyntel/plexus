@@ -63,6 +63,27 @@ describe('Auth Middleware', () => {
   });
 
   it('should allow request with valid Bearer token', async () => {
+    // Re-ensure the config is set for this test
+    setConfigForTesting({
+      providers: {},
+      models: {
+        'gpt-4': {
+          priority: 'selector',
+          targets: [{ provider: 'openai', model: 'gpt-4' }],
+        },
+      },
+      keys: {
+        'test-key-1': { secret: 'sk-valid-key', comment: 'Test Key' },
+      },
+      adminKey: 'admin-secret',
+      failover: {
+        enabled: false,
+        retryableStatusCodes: [429, 500, 502, 503, 504],
+        retryableErrors: ['ECONNREFUSED', 'ETIMEDOUT'],
+      },
+      quotas: [],
+    });
+
     const response = await fastify.inject({
       method: 'POST',
       url: '/v1/chat/completions',

@@ -43,7 +43,7 @@ jobs:
         working-directory: ./packages/frontend
 
       - name: Run tests from backend directory
-        run: bun test --verbose
+        run: bun test --verbose --workers=1
         working-directory: ./packages/backend
 
       - name: Compile Binaries

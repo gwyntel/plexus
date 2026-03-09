@@ -59,7 +59,7 @@ export function createAuthHook() {
         }
 
         logger.silly(`[AUTH] Looking for secret: ${secretPart.substring(0, 15)}`);
-        logger.silly(`[AUTH] Available keys: ${Object.keys(config.keys).join(', ')}`);
+        logger.silly(`[AUTH] Available keys config: ${JSON.stringify(config.keys)}`);
 
         const entry = Object.entries(config.keys).find(
           ([_, k]) => (k as { secret: string }).secret === secretPart
@@ -73,6 +73,8 @@ export function createAuthHook() {
         }
 
         logger.silly(`[AUTH] Auth FAILED - no matching key`);
+        logger.error(`[AUTH] Auth FAILED - no matching key for secret: ${secretPart}`);
+        logger.error(`[AUTH] Available keys config: ${JSON.stringify(config.keys)}`);
         return false;
       },
       errorResponse: ((err: Error) => {
