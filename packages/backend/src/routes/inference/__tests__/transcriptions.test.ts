@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll } from 'bun:test';
 import Fastify, { FastifyInstance } from 'fastify';
 import multipart from '@fastify/multipart';
+import { createTestConfig } from '../../../../test/test-utils';
 import { setConfigForTesting } from '../../../config';
 import { registerInferenceRoutes } from '../index';
 import { Dispatcher } from '../../../services/dispatcher';
@@ -108,16 +109,14 @@ describe('Transcriptions Endpoint', () => {
     SelectorFactory.setUsageStorage(mockUsageStorage);
 
     // Set config with transcription models
-    setConfigForTesting({
+    setConfigForTesting(createTestConfig({
       providers: {
         openai: {
           api_key: 'sk-test',
           api_base_url: 'https://api.openai.com/v1',
-          estimateTokens: false,
-          disable_cooldown: false,
+          enabled: true,
           models: {
             'whisper-1': {
-              type: 'transcriptions',
               pricing: { source: 'simple', input: 0.006, output: 0 },
             },
           },
@@ -130,17 +129,7 @@ describe('Transcriptions Endpoint', () => {
           targets: [{ provider: 'openai', model: 'whisper-1' }],
         },
       },
-      keys: {
-        'test-key-1': { secret: 'sk-valid-key', comment: 'Test Key' },
-      },
-      adminKey: 'admin-secret',
-      failover: {
-        enabled: false,
-        retryableStatusCodes: [429, 500, 502, 503, 504],
-        retryableErrors: ['ECONNREFUSED', 'ETIMEDOUT'],
-      },
-      quotas: [],
-    });
+    }));
 
     await registerInferenceRoutes(fastify, mockDispatcher, mockUsageStorage);
     await fastify.ready();
