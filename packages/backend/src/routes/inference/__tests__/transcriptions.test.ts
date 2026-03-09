@@ -156,9 +156,7 @@ describe('Transcriptions Endpoint', () => {
       payload,
     });
 
-    if (response.statusCode !== 200)
-      console.error('[TRANSCRIPTION TEST] got', response.statusCode, response.body);
-    expect(response.statusCode).toBe(200);
+    if (response.statusCode !== 200) expect(response.statusCode).toBe(200);
     const body = JSON.parse(response.body);
     expect(body).toHaveProperty('text');
     expect(body.text).toBe('This is a test transcription.');
@@ -183,9 +181,7 @@ describe('Transcriptions Endpoint', () => {
       payload,
     });
 
-    if (response.statusCode !== 200)
-      console.error('[TRANSCRIPTION TEST] got', response.statusCode, response.body);
-    expect(response.statusCode).toBe(200);
+    if (response.statusCode !== 200) expect(response.statusCode).toBe(200);
     expect(response.headers['content-type']).toContain('text/plain');
     expect(response.body).toBe('This is a test transcription.');
   });
@@ -214,9 +210,7 @@ describe('Transcriptions Endpoint', () => {
       payload,
     });
 
-    if (response.statusCode !== 200)
-      console.error('[TRANSCRIPTION TEST] got', response.statusCode, response.body);
-    expect(response.statusCode).toBe(200);
+    if (response.statusCode !== 200) expect(response.statusCode).toBe(200);
     const body = JSON.parse(response.body);
     expect(body).toHaveProperty('text');
 

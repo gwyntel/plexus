@@ -107,9 +107,7 @@ describe('Embeddings Endpoint', () => {
       },
     });
 
-    if (response.statusCode !== 200)
-      console.error('[EMBED TEST] got', response.statusCode, response.body);
-    expect(response.statusCode).toBe(200);
+    if (response.statusCode !== 200) expect(response.statusCode).toBe(200);
     const body = JSON.parse(response.body);
     expect(body.object).toBe('list');
     expect(body.data).toBeArray();
@@ -151,9 +149,7 @@ describe('Embeddings Endpoint', () => {
       },
     });
 
-    if (response.statusCode !== 200)
-      console.error('[EMBED TEST] got', response.statusCode, response.body);
-    expect(response.statusCode).toBe(200);
+    if (response.statusCode !== 200) expect(response.statusCode).toBe(200);
     const body = JSON.parse(response.body);
     expect(body.data).toHaveLength(3);
     expect(body.data[0].index).toBe(0);
@@ -176,9 +172,7 @@ describe('Embeddings Endpoint', () => {
       },
     });
 
-    if (response.statusCode !== 200)
-      console.error('[EMBED TEST] got', response.statusCode, response.body);
-    expect(response.statusCode).toBe(200);
+    if (response.statusCode !== 200) expect(response.statusCode).toBe(200);
   });
 
   it('should accept optional dimensions parameter', async () => {
@@ -196,9 +190,7 @@ describe('Embeddings Endpoint', () => {
       },
     });
 
-    if (response.statusCode !== 200)
-      console.error('[EMBED TEST] got', response.statusCode, response.body);
-    expect(response.statusCode).toBe(200);
+    if (response.statusCode !== 200) expect(response.statusCode).toBe(200);
   });
 
   it('should track usage correctly for embeddings', async () => {
@@ -215,9 +207,7 @@ describe('Embeddings Endpoint', () => {
       },
     });
 
-    if (response.statusCode !== 200)
-      console.error('[EMBED TEST] got', response.statusCode, response.body);
-    expect(response.statusCode).toBe(200);
+    if (response.statusCode !== 200) expect(response.statusCode).toBe(200);
 
     const saveRequestCalls = (mockUsageStorage.saveRequest as any).mock.calls;
     const lastCall = saveRequestCalls[saveRequestCalls.length - 1];
@@ -276,9 +266,7 @@ describe('Embeddings Endpoint', () => {
       },
     });
 
-    if (response.statusCode !== 200)
-      console.error('[EMBED TEST] got', response.statusCode, response.body);
-    expect(response.statusCode).toBe(200);
+    if (response.statusCode !== 200) expect(response.statusCode).toBe(200);
   });
 
   it('should track attribution when provided', async () => {
@@ -295,9 +283,7 @@ describe('Embeddings Endpoint', () => {
       },
     });
 
-    if (response.statusCode !== 200)
-      console.error('[EMBED TEST] got', response.statusCode, response.body);
-    expect(response.statusCode).toBe(200);
+    if (response.statusCode !== 200) expect(response.statusCode).toBe(200);
 
     const saveRequestCalls = (mockUsageStorage.saveRequest as any).mock.calls;
     const lastCall = saveRequestCalls[saveRequestCalls.length - 1];

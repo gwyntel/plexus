@@ -59,9 +59,7 @@ describe('Auth Middleware', () => {
         messages: [],
       },
     });
-    if (response.statusCode !== 200)
-      console.error('[AUTH TEST] valid bearer got', response.statusCode, response.body);
-    expect(response.statusCode).toBe(200);
+    if (response.statusCode !== 200) expect(response.statusCode).toBe(200);
 
     const saveRequestCalls = (mockUsageStorage.saveRequest as any).mock.calls;
     const lastCall = saveRequestCalls[saveRequestCalls.length - 1];
@@ -81,9 +79,7 @@ describe('Auth Middleware', () => {
         messages: [],
       },
     });
-    if (response.statusCode !== 200)
-      console.error('[AUTH TEST] x-api-key got', response.statusCode, response.body);
-    expect(response.statusCode).toBe(200);
+    if (response.statusCode !== 200) expect(response.statusCode).toBe(200);
   });
 
   it('should allow request with x-goog-api-key header', async () => {
@@ -99,9 +95,7 @@ describe('Auth Middleware', () => {
         messages: [],
       },
     });
-    if (response.statusCode !== 200)
-      console.error('[AUTH TEST] x-goog-api-key got', response.statusCode, response.body);
-    expect(response.statusCode).toBe(200);
+    if (response.statusCode !== 200) expect(response.statusCode).toBe(200);
   });
 
   it('should allow Gemini request with key query parameter', async () => {
@@ -118,9 +112,7 @@ describe('Auth Middleware', () => {
         contents: [],
       },
     });
-    if (response.statusCode !== 200)
-      console.error('[AUTH TEST] gemini key query got', response.statusCode, response.body);
-    expect(response.statusCode).toBe(200);
+    if (response.statusCode !== 200) expect(response.statusCode).toBe(200);
   });
 
   it('should reject Gemini request with missing key', async () => {
@@ -214,9 +206,7 @@ describe('Key Attribution', () => {
       headers: { authorization: 'Bearer sk-valid-key:copilot', 'content-type': 'application/json' },
       payload: { model: 'gpt-4', messages: [] },
     });
-    if (response.statusCode !== 200)
-      console.error('[ATTR TEST] attribution parse got', response.statusCode, response.body);
-    expect(response.statusCode).toBe(200);
+    if (response.statusCode !== 200) expect(response.statusCode).toBe(200);
     expect((mockUsageStorage.saveRequest as any).mock.calls[0][0].apiKey).toBe('test-key-1');
     expect((mockUsageStorage.saveRequest as any).mock.calls[0][0].attribution).toBe('copilot');
   });
@@ -228,9 +218,7 @@ describe('Key Attribution', () => {
       headers: { authorization: 'Bearer sk-valid-key:CoPilot', 'content-type': 'application/json' },
       payload: { model: 'gpt-4', messages: [] },
     });
-    if (response.statusCode !== 200)
-      console.error('[ATTR TEST] attribution lowercase got', response.statusCode, response.body);
-    expect(response.statusCode).toBe(200);
+    if (response.statusCode !== 200) expect(response.statusCode).toBe(200);
     expect((mockUsageStorage.saveRequest as any).mock.calls[1][0].attribution).toBe('copilot');
   });
 
@@ -244,9 +232,7 @@ describe('Key Attribution', () => {
       },
       payload: { model: 'gpt-4', messages: [] },
     });
-    if (response.statusCode !== 200)
-      console.error('[ATTR TEST] multi-colon got', response.statusCode, response.body);
-    expect(response.statusCode).toBe(200);
+    if (response.statusCode !== 200) expect(response.statusCode).toBe(200);
     expect((mockUsageStorage.saveRequest as any).mock.calls[2][0].attribution).toBe(
       'copilot:dev:v1'
     );
@@ -259,9 +245,7 @@ describe('Key Attribution', () => {
       headers: { authorization: 'Bearer sk-valid-key', 'content-type': 'application/json' },
       payload: { model: 'gpt-4', messages: [] },
     });
-    if (response.statusCode !== 200)
-      console.error('[ATTR TEST] no attribution got', response.statusCode, response.body);
-    expect(response.statusCode).toBe(200);
+    if (response.statusCode !== 200) expect(response.statusCode).toBe(200);
     expect((mockUsageStorage.saveRequest as any).mock.calls[3][0].attribution).toBe(null);
   });
 
