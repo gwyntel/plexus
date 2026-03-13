@@ -374,15 +374,15 @@ export async function registerConfigRoutes(fastify: FastifyInstance) {
 
   // Restart endpoint - exits the process, relying on process manager to restart
   fastify.post('/v0/management/restart', async (_request, reply) => {
-    logger.info('Restart requested via API - exiting process');
+    logger.info('Restart requested via API - exiting process with restart status');
 
     // Send response before exiting
     reply.send({ success: true, message: 'Restarting Plexus...' });
 
-    // Give the response time to be sent, then exit
-    // The process manager (PM2, Docker, systemd) will restart the service
+    // Give the response time to be sent, then exit with a non-zero code so
+    // container and service managers treat this as a restartable termination.
     setTimeout(() => {
-      process.exit(0);
+      process.exit(1);
     }, 100);
   });
 
