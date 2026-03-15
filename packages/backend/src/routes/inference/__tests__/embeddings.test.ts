@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, beforeEach } from 'bun:test';
+import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import Fastify, { FastifyInstance } from 'fastify';
 import { setConfigForTesting } from '../../../config';
 import { registerInferenceRoutes } from '../index';
@@ -44,10 +44,12 @@ describe('Embeddings Endpoint', () => {
   let mockUsageStorage: UsageStorageService;
   let mockDispatcher: Dispatcher;
 
-  beforeAll(async () => {
+  beforeEach(async () => {
+    // Set config first so it's available when routes register
+    setConfigForTesting(EMBEDDINGS_TEST_CONFIG);
+
     fastify = Fastify();
 
-    // Mock dispatcher with embeddings support
     mockDispatcher = {
       dispatch: mock(async () => ({
         id: '123',
@@ -94,20 +96,15 @@ describe('Embeddings Endpoint', () => {
       emitUpdatedAsync: mock(),
     } as unknown as UsageStorageService;
 
-    // Initialize singletons
     DebugManager.getInstance().setStorage(mockUsageStorage);
     SelectorFactory.setUsageStorage(mockUsageStorage);
-
-    // Set config with embeddings models
-    setConfigForTesting(EMBEDDINGS_TEST_CONFIG);
 
     await registerInferenceRoutes(fastify, mockDispatcher, mockUsageStorage);
     await fastify.ready();
   });
 
-  // Re-pin config before each test to guard against cross-file config pollution in CI
-  beforeEach(() => {
-    setConfigForTesting(EMBEDDINGS_TEST_CONFIG);
+  afterEach(async () => {
+    await fastify.close();
   });
 
   it('should accept embeddings request with single text input', async () => {
@@ -136,7 +133,6 @@ describe('Embeddings Endpoint', () => {
   });
 
   it('should accept embeddings request with array input', async () => {
-    // Mock batch response
     (mockDispatcher.dispatchEmbeddings as any).mockImplementationOnce(async () => ({
       object: 'list',
       data: [
@@ -308,7 +304,6 @@ describe('Embeddings Endpoint', () => {
   });
 
   it('should handle dispatcher errors gracefully', async () => {
-    // Mock error
     (mockDispatcher.dispatchEmbeddings as any).mockRejectedValueOnce(
       new Error('Provider unavailable')
     );

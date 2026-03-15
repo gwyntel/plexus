@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, beforeEach } from 'bun:test';
+import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import Fastify, { FastifyInstance } from 'fastify';
 import multipart from '@fastify/multipart';
 import { setConfigForTesting } from '../../../config';
@@ -38,45 +38,48 @@ function createMultipartPayload(
   };
 }
 
+const TRANSCRIPTIONS_TEST_CONFIG = {
+  providers: {
+    openai: {
+      api_key: 'sk-test',
+      api_base_url: 'https://api.openai.com/v1',
+      estimateTokens: false,
+      disable_cooldown: false,
+      models: {
+        'whisper-1': {
+          type: 'transcriptions' as const,
+          pricing: { source: 'simple' as const, input: 0.006, output: 0 },
+        },
+      },
+    },
+  },
+  models: {
+    'transcription-model': {
+      type: 'transcriptions' as const,
+      priority: 'selector' as const,
+      targets: [{ provider: 'openai', model: 'whisper-1' }],
+    },
+  },
+  keys: {
+    'test-key-1': { secret: 'sk-valid-key', comment: 'Test Key' },
+  },
+  failover: {
+    enabled: false,
+    retryableStatusCodes: [429, 500, 502, 503, 504],
+    retryableErrors: ['ECONNREFUSED', 'ETIMEDOUT'],
+  },
+  quotas: [],
+};
+
 describe('Transcriptions Endpoint', () => {
   let fastify: FastifyInstance;
   let mockUsageStorage: UsageStorageService;
   let mockDispatcher: Dispatcher;
 
-  const TRANSCRIPTIONS_TEST_CONFIG = {
-    providers: {
-      openai: {
-        api_key: 'sk-test',
-        api_base_url: 'https://api.openai.com/v1',
-        estimateTokens: false,
-        disable_cooldown: false,
-        models: {
-          'whisper-1': {
-            type: 'transcriptions' as const,
-            pricing: { source: 'simple' as const, input: 0.006, output: 0 },
-          },
-        },
-      },
-    },
-    models: {
-      'transcription-model': {
-        type: 'transcriptions' as const,
-        priority: 'selector' as const,
-        targets: [{ provider: 'openai', model: 'whisper-1' }],
-      },
-    },
-    keys: {
-      'test-key-1': { secret: 'sk-valid-key', comment: 'Test Key' },
-    },
-    failover: {
-      enabled: false,
-      retryableStatusCodes: [429, 500, 502, 503, 504],
-      retryableErrors: ['ECONNREFUSED', 'ETIMEDOUT'],
-    },
-    quotas: [],
-  };
+  beforeEach(async () => {
+    // Set config first so it's available when routes register
+    setConfigForTesting(TRANSCRIPTIONS_TEST_CONFIG);
 
-  beforeAll(async () => {
     fastify = Fastify({
       bodyLimit: 30 * 1024 * 1024, // 30MB
     });
@@ -89,7 +92,6 @@ describe('Transcriptions Endpoint', () => {
       attachFieldsToBody: true,
     });
 
-    // Mock dispatcher with transcriptions support
     mockDispatcher = {
       dispatch: mock(async () => ({
         id: '123',
@@ -136,20 +138,15 @@ describe('Transcriptions Endpoint', () => {
       emitUpdatedAsync: mock(),
     } as unknown as UsageStorageService;
 
-    // Initialize singletons
     DebugManager.getInstance().setStorage(mockUsageStorage);
     SelectorFactory.setUsageStorage(mockUsageStorage);
-
-    // Set config with transcription models
-    setConfigForTesting(TRANSCRIPTIONS_TEST_CONFIG);
 
     await registerInferenceRoutes(fastify, mockDispatcher, mockUsageStorage);
     await fastify.ready();
   });
 
-  // Re-pin config before each test to guard against cross-file config pollution in CI
-  beforeEach(() => {
-    setConfigForTesting(TRANSCRIPTIONS_TEST_CONFIG);
+  afterEach(async () => {
+    await fastify.close();
   });
 
   it('should accept transcription request with audio file (JSON format)', async () => {
