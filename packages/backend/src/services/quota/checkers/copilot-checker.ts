@@ -16,6 +16,7 @@ interface CopilotUsageResponse {
 }
 
 export class CopilotQuotaChecker extends QuotaChecker {
+  readonly category = 'rate-limit' as const;
   private endpoint: string;
   private userAgent: string;
   private editorVersion: string;

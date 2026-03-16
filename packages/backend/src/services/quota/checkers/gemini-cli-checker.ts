@@ -29,6 +29,7 @@ interface GeminiQuotaResponse {
 }
 
 export class GeminiCliQuotaChecker extends QuotaChecker {
+  readonly category = 'rate-limit' as const;
   private endpoint: string;
   private userAgent: string;
   private googApiClient: string;

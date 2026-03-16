@@ -34,6 +34,7 @@ interface CodexUsageResponse {
 }
 
 export class OpenAICodexQuotaChecker extends QuotaChecker {
+  readonly category = 'rate-limit' as const;
   private endpoint: string;
   private userAgent: string;
   private timeoutMs: number;

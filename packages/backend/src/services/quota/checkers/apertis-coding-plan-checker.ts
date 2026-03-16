@@ -38,6 +38,7 @@ interface ApertisCodingPlanResponse {
 const APERTIS_CODING_PLAN_ENDPOINT = 'https://api.stima.tech/api/subscription/status';
 
 export class ApertisCodingPlanQuotaChecker extends QuotaChecker {
+  readonly category = 'rate-limit' as const;
   async checkQuota(): Promise<QuotaCheckResult> {
     const session = this.requireOption<string>('session').trim();
     const endpoint = this.getOption<string>('endpoint', APERTIS_CODING_PLAN_ENDPOINT);

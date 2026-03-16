@@ -437,6 +437,7 @@ const FALLBACK_QUOTA_CHECKER_TYPES = new Set([
   'kilo',
   'wisdomgate',
   'apertis',
+  'apertis-coding-plan',
   'copilot',
   'poe',
   'gemini-cli',
@@ -453,7 +454,7 @@ async function fetchQuotaCheckerTypes(): Promise<Set<string>> {
   }
 
   try {
-    const response = await fetch(`${API_BASE}/v0/management/quota-checker-types`);
+    const response = await fetchWithAuth(`${API_BASE}/v0/management/quota-checker-types`);
     if (response.ok) {
       const data = await response.json();
       if (Array.isArray(data.types)) {

@@ -12,6 +12,7 @@ import type {
   QuotaConfig,
 } from '../config';
 import { VALID_QUOTA_CHECKER_TYPES } from '../config';
+import { QuotaScheduler } from './quota/quota-scheduler';
 import yaml from 'yaml';
 
 /**
@@ -377,6 +378,17 @@ export class ConfigService {
       latencyExplorationRate,
       ...(visionFallthrough ? { vision_fallthrough: visionFallthrough } : {}),
     };
+
+    // Reload the quota scheduler with the updated quota configs so that
+    // changes saved via the UI take effect without a restart.
+    // Only reload if the scheduler has already been initialized (has checkers registered);
+    // on startup, index.ts calls quotaScheduler.initialize() explicitly after this.
+    const scheduler = QuotaScheduler.getInstance();
+    if (scheduler.getCheckerIds().length > 0) {
+      scheduler.reload(quotas).catch((err) => {
+        logger.warn(`Failed to reload QuotaScheduler after config change: ${err}`);
+      });
+    }
   }
 
   /**
@@ -392,6 +404,9 @@ export class ConfigService {
       if (providerConfig.enabled === false) continue;
 
       const quotaChecker = providerConfig.quota_checker;
+      logger.debug(
+        `[buildProviderQuotaConfigs] provider='${providerId}' quota_checker=${JSON.stringify(quotaChecker)}`
+      );
       if (!quotaChecker || quotaChecker.enabled === false) continue;
 
       const checkerId = (quotaChecker.id ?? providerId).trim();

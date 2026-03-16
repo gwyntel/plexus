@@ -24,6 +24,7 @@ export const quotaCheckerTypeEnum = pgEnum('quota_checker_type', [
   'copilot',
   'wisdomgate',
   'apertis',
+  'apertis-coding-plan',
   'poe',
   'gemini-cli',
   'antigravity',

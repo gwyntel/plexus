@@ -11,6 +11,7 @@ interface WisdomGateBalanceResponse {
 }
 
 export class WisdomGateQuotaChecker extends QuotaChecker {
+  readonly category = 'rate-limit' as const;
   async checkQuota(): Promise<QuotaCheckResult> {
     const apiKey = this.requireOption<string>('apiKey');
     const endpoint =

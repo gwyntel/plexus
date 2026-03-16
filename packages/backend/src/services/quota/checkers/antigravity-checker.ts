@@ -43,6 +43,7 @@ interface ParsedModelQuota {
 }
 
 export class AntigravityQuotaChecker extends QuotaChecker {
+  readonly category = 'rate-limit' as const;
   constructor(config: QuotaCheckerConfig) {
     super(config);
   }

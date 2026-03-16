@@ -688,13 +688,29 @@ export class ConfigRepository {
 
     if (rows.length === 0) return defaultValue;
 
-    const parsed = parseJson<T>(rows[0]!.value);
-    return parsed ?? defaultValue;
+    const raw = rows[0]!.value;
+    const wrapper = parseJson<{ value: T }>(raw);
+
+    // New format: {"value": <actual value>}
+    if (wrapper !== null && typeof wrapper === 'object' && 'value' in wrapper) {
+      return (wrapper as { value: T }).value ?? defaultValue;
+    }
+
+    // Legacy format: bare primitive or object stored directly (pre-wrapper migration).
+    // Re-save in new format so subsequent reads work correctly.
+    const legacy = parseJson<T>(raw);
+    if (legacy !== null) {
+      await this.setSetting(key, legacy);
+      return legacy;
+    }
+
+    return defaultValue;
   }
 
   async setSetting(key: string, value: unknown): Promise<void> {
     const schema = this.schema();
     const timestamp = now();
+    const wrapped = toJson({ value });
 
     const existing = await this.db()
       .select()
@@ -705,16 +721,14 @@ export class ConfigRepository {
     if (existing.length > 0) {
       await this.db()
         .update(schema.systemSettings)
-        .set({ value: toJson(value), updatedAt: timestamp })
+        .set({ value: wrapped, updatedAt: timestamp })
         .where(eq(schema.systemSettings.key, key));
     } else {
-      await this.db()
-        .insert(schema.systemSettings)
-        .values({
-          key,
-          value: toJson(value),
-          updatedAt: timestamp,
-        });
+      await this.db().insert(schema.systemSettings).values({
+        key,
+        value: wrapped,
+        updatedAt: timestamp,
+      });
     }
   }
 
@@ -724,6 +738,7 @@ export class ConfigRepository {
 
     await this.db().transaction(async (tx) => {
       for (const [key, value] of Object.entries(entries)) {
+        const wrapped = toJson({ value });
         const existing = await tx
           .select()
           .from(schema.systemSettings)
@@ -733,12 +748,12 @@ export class ConfigRepository {
         if (existing.length > 0) {
           await tx
             .update(schema.systemSettings)
-            .set({ value: toJson(value), updatedAt: timestamp })
+            .set({ value: wrapped, updatedAt: timestamp })
             .where(eq(schema.systemSettings.key, key));
         } else {
           await tx.insert(schema.systemSettings).values({
             key,
-            value: toJson(value),
+            value: wrapped,
             updatedAt: timestamp,
           });
         }
@@ -751,7 +766,11 @@ export class ConfigRepository {
     const rows = await this.db().select().from(schema.systemSettings);
     const result: Record<string, unknown> = {};
     for (const row of rows) {
-      result[row.key] = parseJson(row.value);
+      const wrapper = parseJson<{ value: unknown }>(row.value);
+      result[row.key] =
+        wrapper !== null && typeof wrapper === 'object' && 'value' in wrapper
+          ? wrapper.value
+          : parseJson(row.value); // fallback for legacy unwrapped rows
     }
     return result;
   }
