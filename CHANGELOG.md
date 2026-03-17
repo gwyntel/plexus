@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.19.0 - 2026-03-17
+
+### Update Apertis Quota & Balance Checking
+
+**Provider Updates:** Updated the Apertis quota checker to support new endpoints and data shapes ([a160a62](https://github.com/mcowger/plexus/commit/a160a62), [1f5b446](https://github.com/mcowger/plexus/commit/1f5b446)).
+
 ## v0.9.9 - 2026-03-16
 
 ### Plexus v0.9.9: Migration to Database-Backed Configuration and Management API Refactor
