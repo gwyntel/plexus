@@ -374,9 +374,10 @@ export class OAuthTransformer implements Transformer {
     modelId: string,
     streaming: boolean,
     options?: Record<string, any>,
-    auth:
-      | { authMode: 'oauth'; accountId: string }
-      | { authMode: 'apiKey'; apiKey: string } = { authMode: 'oauth', accountId: '' }
+    auth: { authMode: 'oauth'; accountId: string } | { authMode: 'apiKey'; apiKey: string } = {
+      authMode: 'oauth',
+      accountId: '',
+    }
   ): Promise<any> {
     const rawApiKey = await this.resolveApiKey(provider, auth);
     // pi-ai enables Claude Code identity/system injection only for OAuth-shaped tokens.
@@ -475,7 +476,9 @@ export class OAuthTransformer implements Transformer {
       isClaudeCodeToken,
       usesClaudeCodeOAuthShim,
       hasRawAnthropicApiKeyHeader:
-        provider === 'anthropic' && auth.authMode === 'apiKey' && !!requestOptions.headers?.['x-api-key'],
+        provider === 'anthropic' &&
+        auth.authMode === 'apiKey' &&
+        !!requestOptions.headers?.['x-api-key'],
       isClaudeCodeAgent,
       optionKeys: Object.keys(filteredOptions),
       hasInjectedClaudeCodeHeaders: !!requestOptions.headers,

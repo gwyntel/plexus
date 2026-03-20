@@ -215,7 +215,13 @@ describe('transformAnthropicStream tool call index remapping', () => {
         event: 'message_start',
         data: {
           type: 'message_start',
-          message: { id: 'msg_1', model: 'claude-sonnet-4-6', role: 'assistant', content: [], usage: { input_tokens: 100, output_tokens: 10 } },
+          message: {
+            id: 'msg_1',
+            model: 'claude-sonnet-4-6',
+            role: 'assistant',
+            content: [],
+            usage: { input_tokens: 100, output_tokens: 10 },
+          },
         },
       },
       {
@@ -224,7 +230,11 @@ describe('transformAnthropicStream tool call index remapping', () => {
       },
       {
         event: 'content_block_delta',
-        data: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'I will search for that.' } },
+        data: {
+          type: 'content_block_delta',
+          index: 0,
+          delta: { type: 'text_delta', text: 'I will search for that.' },
+        },
       },
       {
         event: 'content_block_stop',
@@ -235,20 +245,37 @@ describe('transformAnthropicStream tool call index remapping', () => {
         data: {
           type: 'content_block_start',
           index: 1,
-          content_block: { type: 'tool_use', id: 'toolu_01Ay3P3veAArWBgLjc4RipN2', name: 'search_web', input: {} },
+          content_block: {
+            type: 'tool_use',
+            id: 'toolu_01Ay3P3veAArWBgLjc4RipN2',
+            name: 'search_web',
+            input: {},
+          },
         },
       },
       {
         event: 'content_block_delta',
-        data: { type: 'content_block_delta', index: 1, delta: { type: 'input_json_delta', partial_json: '{"query": "' } },
+        data: {
+          type: 'content_block_delta',
+          index: 1,
+          delta: { type: 'input_json_delta', partial_json: '{"query": "' },
+        },
       },
       {
         event: 'content_block_delta',
-        data: { type: 'content_block_delta', index: 1, delta: { type: 'input_json_delta', partial_json: 'fun things' } },
+        data: {
+          type: 'content_block_delta',
+          index: 1,
+          delta: { type: 'input_json_delta', partial_json: 'fun things' },
+        },
       },
       {
         event: 'content_block_delta',
-        data: { type: 'content_block_delta', index: 1, delta: { type: 'input_json_delta', partial_json: '"}' } },
+        data: {
+          type: 'content_block_delta',
+          index: 1,
+          delta: { type: 'input_json_delta', partial_json: '"}' },
+        },
       },
       {
         event: 'content_block_stop',
@@ -256,7 +283,11 @@ describe('transformAnthropicStream tool call index remapping', () => {
       },
       {
         event: 'message_delta',
-        data: { type: 'message_delta', delta: { stop_reason: 'tool_use' }, usage: { output_tokens: 50 } },
+        data: {
+          type: 'message_delta',
+          delta: { stop_reason: 'tool_use' },
+          usage: { output_tokens: 50 },
+        },
       },
     ];
 
@@ -265,16 +296,16 @@ describe('transformAnthropicStream tool call index remapping', () => {
     const chunks = await drainUnifiedStream(unifiedStream);
 
     // Find tool_call start chunk (has id and name)
-    const toolStartChunk = chunks.find(
-      (c) => c.delta?.tool_calls?.[0]?.id !== undefined,
-    );
+    const toolStartChunk = chunks.find((c) => c.delta?.tool_calls?.[0]?.id !== undefined);
     expect(toolStartChunk).toBeDefined();
     expect(toolStartChunk.delta.tool_calls[0].index).toBe(0); // MUST be 0, not 1
     expect(toolStartChunk.delta.tool_calls[0].function.name).toBe('search_web');
 
     // Find all argument delta chunks
     const argChunks = chunks.filter(
-      (c) => c.delta?.tool_calls?.[0]?.function?.arguments !== undefined && c.delta?.tool_calls?.[0]?.id === undefined,
+      (c) =>
+        c.delta?.tool_calls?.[0]?.function?.arguments !== undefined &&
+        c.delta?.tool_calls?.[0]?.id === undefined
     );
     for (const ac of argChunks) {
       expect(ac.delta.tool_calls[0].index).toBe(0); // All deltas must also be index 0
@@ -288,7 +319,13 @@ describe('transformAnthropicStream tool call index remapping', () => {
         event: 'message_start',
         data: {
           type: 'message_start',
-          message: { id: 'msg_2', model: 'claude-sonnet-4-6', role: 'assistant', content: [], usage: { input_tokens: 100, output_tokens: 10 } },
+          message: {
+            id: 'msg_2',
+            model: 'claude-sonnet-4-6',
+            role: 'assistant',
+            content: [],
+            usage: { input_tokens: 100, output_tokens: 10 },
+          },
         },
       },
       {
@@ -301,7 +338,11 @@ describe('transformAnthropicStream tool call index remapping', () => {
       },
       {
         event: 'content_block_delta',
-        data: { type: 'content_block_delta', index: 0, delta: { type: 'input_json_delta', partial_json: '{"query":"a"}' } },
+        data: {
+          type: 'content_block_delta',
+          index: 0,
+          delta: { type: 'input_json_delta', partial_json: '{"query":"a"}' },
+        },
       },
       {
         event: 'content_block_stop',
@@ -317,7 +358,11 @@ describe('transformAnthropicStream tool call index remapping', () => {
       },
       {
         event: 'content_block_delta',
-        data: { type: 'content_block_delta', index: 1, delta: { type: 'input_json_delta', partial_json: '{"query":"b"}' } },
+        data: {
+          type: 'content_block_delta',
+          index: 1,
+          delta: { type: 'input_json_delta', partial_json: '{"query":"b"}' },
+        },
       },
       {
         event: 'content_block_stop',
@@ -325,7 +370,11 @@ describe('transformAnthropicStream tool call index remapping', () => {
       },
       {
         event: 'message_delta',
-        data: { type: 'message_delta', delta: { stop_reason: 'tool_use' }, usage: { output_tokens: 80 } },
+        data: {
+          type: 'message_delta',
+          delta: { stop_reason: 'tool_use' },
+          usage: { output_tokens: 80 },
+        },
       },
     ];
 
@@ -348,16 +397,30 @@ describe('transformAnthropicStream tool call index remapping', () => {
         event: 'message_start',
         data: {
           type: 'message_start',
-          message: { id: 'msg_3', model: 'claude-sonnet-4-6', role: 'assistant', content: [], usage: { input_tokens: 50, output_tokens: 5 } },
+          message: {
+            id: 'msg_3',
+            model: 'claude-sonnet-4-6',
+            role: 'assistant',
+            content: [],
+            usage: { input_tokens: 50, output_tokens: 5 },
+          },
         },
       },
       {
         event: 'content_block_start',
-        data: { type: 'content_block_start', index: 0, content_block: { type: 'thinking', thinking: '' } },
+        data: {
+          type: 'content_block_start',
+          index: 0,
+          content_block: { type: 'thinking', thinking: '' },
+        },
       },
       {
         event: 'content_block_delta',
-        data: { type: 'content_block_delta', index: 0, delta: { type: 'thinking_delta', thinking: 'Let me search...' } },
+        data: {
+          type: 'content_block_delta',
+          index: 0,
+          delta: { type: 'thinking_delta', thinking: 'Let me search...' },
+        },
       },
       {
         event: 'content_block_stop',
@@ -373,7 +436,11 @@ describe('transformAnthropicStream tool call index remapping', () => {
       },
       {
         event: 'content_block_delta',
-        data: { type: 'content_block_delta', index: 1, delta: { type: 'input_json_delta', partial_json: '{"q":"x"}' } },
+        data: {
+          type: 'content_block_delta',
+          index: 1,
+          delta: { type: 'input_json_delta', partial_json: '{"q":"x"}' },
+        },
       },
       {
         event: 'content_block_stop',
@@ -381,7 +448,11 @@ describe('transformAnthropicStream tool call index remapping', () => {
       },
       {
         event: 'message_delta',
-        data: { type: 'message_delta', delta: { stop_reason: 'tool_use' }, usage: { output_tokens: 30 } },
+        data: {
+          type: 'message_delta',
+          delta: { stop_reason: 'tool_use' },
+          usage: { output_tokens: 30 },
+        },
       },
     ];
 
@@ -395,7 +466,9 @@ describe('transformAnthropicStream tool call index remapping', () => {
     expect(toolStartChunk.delta.tool_calls[0].id).toBe('toolu_C');
 
     const argChunks = chunks.filter(
-      (c) => c.delta?.tool_calls?.[0]?.function?.arguments !== undefined && c.delta?.tool_calls?.[0]?.id === undefined,
+      (c) =>
+        c.delta?.tool_calls?.[0]?.function?.arguments !== undefined &&
+        c.delta?.tool_calls?.[0]?.id === undefined
     );
     for (const ac of argChunks) {
       expect(ac.delta.tool_calls[0].index).toBe(0);
@@ -409,7 +482,13 @@ describe('transformAnthropicStream tool call index remapping', () => {
         event: 'message_start',
         data: {
           type: 'message_start',
-          message: { id: 'msg_4', model: 'claude-sonnet-4-6', role: 'assistant', content: [], usage: { input_tokens: 50, output_tokens: 5 } },
+          message: {
+            id: 'msg_4',
+            model: 'claude-sonnet-4-6',
+            role: 'assistant',
+            content: [],
+            usage: { input_tokens: 50, output_tokens: 5 },
+          },
         },
       },
       {
@@ -418,7 +497,11 @@ describe('transformAnthropicStream tool call index remapping', () => {
       },
       {
         event: 'content_block_delta',
-        data: { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'Searching...' } },
+        data: {
+          type: 'content_block_delta',
+          index: 0,
+          delta: { type: 'text_delta', text: 'Searching...' },
+        },
       },
       {
         event: 'content_block_stop',
@@ -434,7 +517,11 @@ describe('transformAnthropicStream tool call index remapping', () => {
       },
       {
         event: 'content_block_delta',
-        data: { type: 'content_block_delta', index: 1, delta: { type: 'input_json_delta', partial_json: '{"q":"a"}' } },
+        data: {
+          type: 'content_block_delta',
+          index: 1,
+          delta: { type: 'input_json_delta', partial_json: '{"q":"a"}' },
+        },
       },
       {
         event: 'content_block_stop',
@@ -450,7 +537,11 @@ describe('transformAnthropicStream tool call index remapping', () => {
       },
       {
         event: 'content_block_delta',
-        data: { type: 'content_block_delta', index: 2, delta: { type: 'input_json_delta', partial_json: '{"url":"x"}' } },
+        data: {
+          type: 'content_block_delta',
+          index: 2,
+          delta: { type: 'input_json_delta', partial_json: '{"url":"x"}' },
+        },
       },
       {
         event: 'content_block_stop',
@@ -458,7 +549,11 @@ describe('transformAnthropicStream tool call index remapping', () => {
       },
       {
         event: 'message_delta',
-        data: { type: 'message_delta', delta: { stop_reason: 'tool_use' }, usage: { output_tokens: 80 } },
+        data: {
+          type: 'message_delta',
+          delta: { stop_reason: 'tool_use' },
+          usage: { output_tokens: 80 },
+        },
       },
     ];
 
@@ -477,12 +572,12 @@ describe('transformAnthropicStream tool call index remapping', () => {
 
     // Verify argument deltas also use remapped indices
     const argChunksForBlock1 = chunks.filter(
-      (c) => c.delta?.tool_calls?.[0]?.function?.arguments === '{"q":"a"}',
+      (c) => c.delta?.tool_calls?.[0]?.function?.arguments === '{"q":"a"}'
     );
     expect(argChunksForBlock1[0].delta.tool_calls[0].index).toBe(0);
 
     const argChunksForBlock2 = chunks.filter(
-      (c) => c.delta?.tool_calls?.[0]?.function?.arguments === '{"url":"x"}',
+      (c) => c.delta?.tool_calls?.[0]?.function?.arguments === '{"url":"x"}'
     );
     expect(argChunksForBlock2[0].delta.tool_calls[0].index).toBe(1);
   });

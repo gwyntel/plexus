@@ -108,19 +108,20 @@ describe('Dispatcher Claude Masking routing', () => {
 
   test('useClaudeMasking:false routes through native HTTP fetch (fetch called, pi-ai not called)', async () => {
     setConfigForTesting(normalAnthropicConfig());
-    fetchMock.mockImplementation(async () =>
-      new Response(
-        JSON.stringify({
-          id: 'msg-1',
-          type: 'message',
-          role: 'assistant',
-          content: [{ type: 'text', text: 'ok' }],
-          model: 'claude-test',
-          stop_reason: 'end_turn',
-          usage: { input_tokens: 1, output_tokens: 1 },
-        }),
-        { status: 200, headers: { 'Content-Type': 'application/json' } }
-      )
+    fetchMock.mockImplementation(
+      async () =>
+        new Response(
+          JSON.stringify({
+            id: 'msg-1',
+            type: 'message',
+            role: 'assistant',
+            content: [{ type: 'text', text: 'ok' }],
+            model: 'claude-test',
+            stop_reason: 'end_turn',
+            usage: { input_tokens: 1, output_tokens: 1 },
+          }),
+          { status: 200, headers: { 'Content-Type': 'application/json' } }
+        )
     );
 
     const dispatcher = new Dispatcher();

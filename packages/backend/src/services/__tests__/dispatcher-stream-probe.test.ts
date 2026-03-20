@@ -9,7 +9,9 @@ describe('probeStreamingStart', () => {
     // Simulate a stream where the first chunk arrives after >100ms
     const encoder = new TextEncoder();
     const firstChunk = encoder.encode('event: message_start\ndata: {"type":"message_start"}\n\n');
-    const secondChunk = encoder.encode('event: content_block_delta\ndata: {"type":"content_block_delta"}\n\n');
+    const secondChunk = encoder.encode(
+      'event: content_block_delta\ndata: {"type":"content_block_delta"}\n\n'
+    );
 
     const stream = new ReadableStream<Uint8Array>({
       async start(controller) {
@@ -53,7 +55,9 @@ describe('probeStreamingStart', () => {
     // Stream where the first chunk arrives immediately (< 100ms)
     const encoder = new TextEncoder();
     const firstChunk = encoder.encode('event: message_start\ndata: {"type":"message_start"}\n\n');
-    const secondChunk = encoder.encode('event: content_block_delta\ndata: {"type":"content_block_delta"}\n\n');
+    const secondChunk = encoder.encode(
+      'event: content_block_delta\ndata: {"type":"content_block_delta"}\n\n'
+    );
 
     const stream = new ReadableStream<Uint8Array>({
       start(controller) {
