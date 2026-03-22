@@ -1,5 +1,29 @@
 # Changelog
 
+## v0.19.5 - 2026-03-22
+
+### v0.19.5: Configuration resolution fixes, Prometheus monitoring, and dependency updates
+
+## New Features
+
+- Added Prometheus endpoint for metrics collection ([13c82ed](https://github.com/mcowger/plexus/commit/13c82ed))
+
+## Bug Fixes
+
+- Fixed `use_image_fallthrough` to correctly read from alias config instead of provider model config ([a730b0e](https://github.com/mcowger/plexus/commit/a730b0e))
+- Updated class names in Providers component for consistent styling ([fabcfbd](https://github.com/mcowger/plexus/commit/fabcfbd))
+- Added pi-ai mocks to dispatcher-quota-errors test to prevent test pollution ([1b8e867](https://github.com/mcowger/plexus/commit/1b8e867), [eedc8cf](https://github.com/mcowger/plexus/commit/eedc8cf))
+
+## Infrastructure & Refactoring
+
+- Removed migration and setup guides, verification script, and related skill links for shadcn/ui and drizzle-orm ([6db588a](https://github.com/mcowger/plexus/commit/6db588a))
+
+## Dependencies
+
+- Updated @mariozechner/pi-ai from 0.56.3 to 0.61.0 ([4273680](https://github.com/mcowger/plexus/commit/4273680))
+
+The Docker image has been updated and can be found at `ghcr.io/mcowger/plexus:latest`
+
 ## v0.19.4 - 2026-03-19
 
 ### Provider Quota Tracking and novita.ai Integration
