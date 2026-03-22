@@ -75,10 +75,7 @@ export function encrypt(plaintext: string): string {
     authTagLength: AUTH_TAG_LENGTH,
   });
 
-  const encrypted = Buffer.concat([
-    cipher.update(plaintext, 'utf8'),
-    cipher.final(),
-  ]);
+  const encrypted = Buffer.concat([cipher.update(plaintext, 'utf8'), cipher.final()]);
   const authTag = cipher.getAuthTag();
 
   return `${PREFIX}${iv.toString('hex')}:${authTag.toString('hex')}:${encrypted.toString('hex')}`;
@@ -93,9 +90,7 @@ export function decrypt(value: string): string {
 
   const key = getEncryptionKey();
   if (!key) {
-    throw new Error(
-      'Cannot decrypt value: ENCRYPTION_KEY is not set but encrypted data was found'
-    );
+    throw new Error('Cannot decrypt value: ENCRYPTION_KEY is not set but encrypted data was found');
   }
 
   const parts = value.slice(PREFIX.length).split(':');
@@ -113,10 +108,7 @@ export function decrypt(value: string): string {
   });
   decipher.setAuthTag(authTag);
 
-  const decrypted = Buffer.concat([
-    decipher.update(ciphertext),
-    decipher.final(),
-  ]);
+  const decrypted = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
 
   return decrypted.toString('utf8');
 }

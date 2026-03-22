@@ -104,10 +104,7 @@ export async function runEncryptionMigration(): Promise<void> {
       }
 
       if (Object.keys(updates).length > 0) {
-        await db
-          .update(schema.providers)
-          .set(updates)
-          .where(eq(schema.providers.id, row.id));
+        await db.update(schema.providers).set(updates).where(eq(schema.providers.id, row.id));
         providerCount++;
       }
     }

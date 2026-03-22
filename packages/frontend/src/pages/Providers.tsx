@@ -2682,10 +2682,7 @@ export const Providers = () => {
                                       ) {
                                         return (
                                           <div className="flex items-start gap-2 py-1.5 px-2 bg-info/10 border border-info/30 rounded-sm mt-2">
-                                            <Info
-                                              size={14}
-                                              className="text-info shrink-0 mt-0.5"
-                                            />
+                                            <Info size={14} className="text-info shrink-0 mt-0.5" />
                                             <span className="text-[11px] text-info">
                                               Provider has a native Ollama URL. If you want this
                                               model to use native Ollama, select{' '}

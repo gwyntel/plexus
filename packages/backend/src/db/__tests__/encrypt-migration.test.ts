@@ -3,12 +3,7 @@ import { eq } from 'drizzle-orm';
 import { closeDatabase, getDatabase, getSchema, initializeDatabase } from '../client';
 import { runMigrations } from '../migrate';
 import { runEncryptionMigration } from '../encrypt-migration';
-import {
-  decrypt,
-  hashSecret,
-  isEncrypted,
-  resetEncryptionKeyCache,
-} from '../../utils/encryption';
+import { decrypt, hashSecret, isEncrypted, resetEncryptionKeyCache } from '../../utils/encryption';
 
 const TEST_KEY = 'b'.repeat(64);
 
@@ -152,8 +147,13 @@ describe('encryption migration', () => {
     const row = rows[0]!;
     expect(isEncrypted(row.headers as string)).toBe(true);
     expect(isEncrypted(row.quotaCheckerOptions as string)).toBe(true);
-    expect(JSON.parse(decrypt(row.headers as string))).toEqual({ Authorization: 'Bearer secret-token' });
-    expect(JSON.parse(decrypt(row.quotaCheckerOptions as string))).toEqual({ endpoint: '/usage', threshold: 90 });
+    expect(JSON.parse(decrypt(row.headers as string))).toEqual({
+      Authorization: 'Bearer secret-token',
+    });
+    expect(JSON.parse(decrypt(row.quotaCheckerOptions as string))).toEqual({
+      endpoint: '/usage',
+      threshold: 90,
+    });
     // extraBody should NOT be encrypted (non-sensitive config data)
     expect(row.extraBody as string).toBe(extraBody);
   });
