@@ -1,7 +1,7 @@
 import React from 'react';
 import { clsx } from 'clsx';
-import { AlertTriangle, CheckCircle2 } from 'lucide-react';
-import { formatDuration } from '../../lib/format';
+import { AlertTriangle, CheckCircle2, Bot } from 'lucide-react';
+import { formatDuration, toTitleCase } from '../../lib/format';
 import type { QuotaCheckResult, QuotaStatus } from '../../types/quota';
 
 interface OllamaQuotaDisplayProps {
@@ -53,6 +53,16 @@ export const OllamaQuotaDisplay: React.FC<OllamaQuotaDisplayProps> = ({ result, 
 
   return (
     <div className="px-2 py-1 space-y-1">
+      <div className="flex items-center gap-2 min-w-0">
+        <Bot size={14} className="text-text" />
+        <span className="text-xs font-semibold text-text whitespace-nowrap">Ollama</span>
+        {result.checkerId && result.checkerId !== 'ollama' && (
+          <span className="text-[10px] text-text-muted truncate">
+            ({toTitleCase(result.checkerId.replace(/^ollama[-_]/i, ''))})
+          </span>
+        )}
+      </div>
+
       {fiveHourWindow && (
         <div className="space-y-1">
           <div className="flex items-baseline gap-2">
