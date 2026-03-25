@@ -41,7 +41,7 @@ Plexus sits in front of your LLM providers and handles protocol translation, loa
 
 **Key capabilities:**
 
-- **Unified API surface** — Accept OpenAI (`/v1/chat/completions`), Anthropic (`/v1/messages`), Gemini, Embeddings, Audio, Images, and Responses (`/v1/responses`) formats
+- **Unified API surface** — Accept OpenAI (`/v1/chat/completions`), Anthropic (`/v1/messages`), Responses (`/v1/responses`), Gemini (`/v1beta`), Embeddings, Audio, Images.
 - **Multi-provider routing** — Route to OpenAI, Anthropic, Google Gemini, DeepSeek, Groq, OpenRouter, and any OpenAI-compatible provider
 - **OAuth providers** — Authenticate via GitHub Copilot, Anthropic Claude, OpenAI Codex, Gemini CLI, and Antigravity through OAuth (no API key required)
 - **Model aliasing & load balancing** — Define virtual model names backed by multiple real providers with `random`, `cost`, `performance`, `latency`, or `in_order` selectors
@@ -49,7 +49,7 @@ Plexus sits in front of your LLM providers and handles protocol translation, loa
 - **Intelligent failover** — Exponential backoff cooldowns automatically remove unhealthy providers from rotation
 - **Usage tracking** — Per-request cost, token counts, latency, and TPS metrics with a built-in dashboard
 - **MCP proxy** — Proxy Model Context Protocol servers through Plexus with per-request session isolation
-- **User quotas** — Per-API-key rate limiting by requests or tokens with rolling, daily, or weekly windows
+- **User quotas** — Per-API-key rate limiting by requests or tokens with rolling, daily, or weekly windows, along with cost restriction.
 - **Admin dashboard** — Web UI for configuration, usage analytics, debug traces, and quota monitoring
 
 ---
@@ -78,32 +78,9 @@ Enable **Vision Fallthrough** for any model alias directly in the **Admin UI** u
 
 ## Quick Start
 
-Start with a minimal config file that all options below share:
-
-```yaml
-# config/plexus.yaml
-adminKey: "change-me"
-
-providers:
-  openai:
-    api_base_url: https://api.openai.com/v1
-    api_key: "sk-your-openai-key"
-    models:
-      - gpt-4o
-      - gpt-4o-mini
-
-models:
-  fast:
-    targets:
-      - provider: openai
-        model: gpt-4o-mini
-
-keys:
-  my-app:
-    secret: "sk-plexus-my-key"
-```
 
 `DATABASE_URL` is required and tells Plexus where to store usage data. Use a local SQLite file for simple deployments, or a PostgreSQL connection string for production.
+`ADMIN_KEY` is required and specifies the administrative key.
 
 ### Option A — Docker
 
@@ -148,24 +125,9 @@ curl -X POST http://localhost:4000/v1/chat/completions \
 
 The dashboard is at `http://localhost:4000` — log in with your `adminKey`.
 
-> **OAuth providers** (GitHub Copilot, Anthropic, OpenAI Codex, etc.) use credentials managed through the Admin UI. These are stored in `./auth.json` by default — no manual setup required. Set `AUTH_JSON` to override the path. See [Configuration: OAuth Providers](docs/CONFIGURATION.md#oauth-providers-pi-ai).
+> **OAuth providers** (GitHub Copilot, Anthropic, OpenAI Codex, etc.) use credentials managed through the Admin UI. See [Configuration: OAuth Providers](docs/CONFIGURATION.md#oauth-providers-pi-ai).
 
 See [Installation Guide](docs/INSTALLATION.md) for Docker Compose, building from source, and all environment variable options.
-
----
-
-## Recent Updates
-
-- **Encryption at Rest**: AES-256-GCM encryption for API keys, OAuth tokens, and provider credentials stored in the database. Enable with `ENCRYPTION_KEY` env var.
-- **Responses API**: Full OpenAI `/v1/responses` endpoint with multi-turn `previous_response_id` tracking and conversation management
-- **Image & Speech APIs**: `/v1/images/generations`, `/v1/images/edits`, and `/v1/audio/speech` endpoints
-- **Per-Request Pricing**: Flat dollar amount per API call, independent of token count
-- **MCP Proxy Support**: Proxy streamable HTTP MCP servers with per-request session isolation
-- **OAuth Providers**: Authenticate to Anthropic, GitHub Copilot, Gemini CLI, Antigravity, and OpenAI Codex via the Admin UI
-- **User Quota Enforcement**: Per-API-key limits using rolling (leaky bucket), daily, or weekly windows
-- **Escalating Cooldown System**: Exponential backoff for provider failures (2 min → 5 hr cap); success resets failure count
-- **Quota Tracking System**: Monitor provider rate limits with configurable per-provider checkers
-- **Dynamic Key Attribution**: Append `:label` to any API key secret to track usage by feature or team
 
 ---
 
@@ -197,6 +159,7 @@ Use `priority: api_match` to prefer providers that natively speak the incoming A
 
 Plexus supports protocol translation between:
 - **OpenAI** chat completions format (`/v1/chat/completions`)
+- **OpenAI** responses  format (`/v1/responses`)
 - **Anthropic** messages format (`/v1/messages`)
 - **Google Gemini** native format
 - Any **OpenAI-compatible** provider (DeepSeek, Groq, OpenRouter, Together, etc.)
@@ -223,44 +186,19 @@ OAuth credentials are stored in `auth.json` and managed through the Admin UI.
 
 Limit how much each API key can consume using rolling, daily, or weekly windows:
 
-```yaml
-user_quotas:
-  premium:
-    type: rolling
-    limitType: tokens
-    limit: 100000
-    duration: 1h
-
-  budget:
-    type: daily
-    limitType: cost
-    limit: 10.0        # $10 per day spending limit
-
-keys:
-  my-app:
-    secret: "sk-plexus-app-key"
-    quota: premium
-```
-
 **Limit types:** `tokens`, `requests`, or `cost` (dollar spending).
 
 → See [Configuration: user_quotas](docs/CONFIGURATION.md#user_quotas-optional)
 
 ### Provider Cooldowns
 
-When a provider fails, Plexus removes it from rotation using exponential backoff: 2 min → 4 min → 8 min → ... → 5 hr cap. Successful requests reset the counter. Set `disable_cooldown: true` on a provider to opt it out entirely.
+When a provider fails, Plexus removes it from rotation using exponential backoff: 2 min → 4 min → 8 min → ... → 5 hr cap. Successful requests reset the counter. Set disable cooldown: true on a provider to opt it out entirely.
 
 → See [Configuration: cooldown](docs/CONFIGURATION.md#cooldown-optional)
 
 ### MCP Proxy
 
 Proxy [Model Context Protocol](https://modelcontextprotocol.io) servers through Plexus. Only streamable HTTP transport is supported. Each request gets an isolated MCP session, preventing tool sprawl across clients.
-
-```yaml
-mcp_servers:
-  my-tools:
-    upstream_url: https://my-mcp-server.example.com/mcp
-```
 
 → See [Configuration: MCP Servers](docs/CONFIGURATION.md#mcp-servers-optional)
 
