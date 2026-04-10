@@ -308,6 +308,41 @@ test("my test", () => {
 });
 ```
 
+### Using `registerSpy` for Automatic Spy Cleanup
+
+Bun's test runner shares spies across test file boundaries. If you use `spyOn()` without `mockRestore()`, subsequent tests will inherit the spy.
+
+**Use `registerSpy` from `packages/backend/test/test-utils.ts` instead of `spyOn`:**
+
+```typescript
+import { registerSpy, restoreAllSpies, afterEach } from '../test/test-utils';
+import { VisionDescriptorService } from '../src/services/vision-descriptor-service';
+
+describe('My Tests', () => {
+  // Spies are automatically restored after each test
+  const processSpy = registerSpy(VisionDescriptorService, 'process');
+
+  test('my test', async () => {
+    // spy is active here
+    processSpy.mockResolvedValue({ result: 'mocked' });
+    // ...
+  });
+
+  test('another test', async () => {
+    // spy is fresh here (restored before this test)
+    processSpy.mockResolvedValue({ result: 'different' });
+    // ...
+  });
+});
+```
+
+The `registerSpy` function:
+1. Creates the spy using `spyOn()`
+2. Registers it for automatic cleanup
+3. Automatically restores ALL tracked spies after each test via a global `afterEach`
+
+**This is the preferred way to use spies in this project.**
+
 ## 8. Frontend Styling & Tailwind CSS
 
 ### 8.1 Tailwind CSS Build Process

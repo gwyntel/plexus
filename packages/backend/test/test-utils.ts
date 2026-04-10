@@ -1,28 +1,96 @@
-import { PlexusConfig } from '../src/config';
+import { spyOn, afterEach, type SpyInstance, type MockInstance } from 'bun:test';
 
-export function createTestConfig(overrides: Partial<PlexusConfig> = {}): PlexusConfig {
-  return {
-    providers: {},
-    models: {
-      'gpt-4': {
-        priority: 'selector',
-        targets: [{ provider: 'openai', model: 'gpt-4' }],
-      },
-      'embeddings-small': {
-        priority: 'selector',
-        targets: [{ provider: 'openai', model: 'text-embedding-3-small' }],
-      },
-    },
-    keys: {
-      'test-key-1': { secret: 'sk-valid-key', comment: 'Test Key' },
-    },
-    adminKey: 'admin-secret',
-    failover: {
-      enabled: false,
-      retryableStatusCodes: [429, 500, 502, 503, 504],
-      retryableErrors: ['ECONNREFUSED', 'ETIMEDOUT'],
-    },
-    quotas: [],
-    ...overrides,
-  } as PlexusConfig;
+/**
+ * Global Spy Registry
+ *
+ * Bun's test runner shares state between test files in the same worker.
+ * This registry automatically tracks all spies created during a test and
+ * restores them in the global afterEach hook.
+ *
+ * Usage in tests:
+ *   import { registerSpy, unregisterSpy } from '../test/test-utils';
+ *
+ *   // Instead of:
+ *   const spy = spyOn(obj, 'method');
+ *
+ *   // Use:
+ *   const spy = registerSpy(obj, 'method');
+ *
+ *   // The spy will be automatically restored after each test.
+ */
+
+interface TrackedSpy {
+  spy: SpyInstance<any, any>;
+  target: any;
+  methodName: string;
 }
+
+// Module-level registry (persists across test files in the same worker)
+const trackedSpies: TrackedSpy[] = [];
+
+/**
+ * Register a spy that will be automatically restored after each test.
+ * Use this instead of spyOn() for any spy that should not leak.
+ */
+export function registerSpy<T extends object, K extends keyof T>(
+  target: T,
+  methodName: K
+): SpyInstance<T[K], T[K]>;
+export function registerSpy(target: any, methodName: string): SpyInstance<any, any>;
+export function registerSpy(target: any, methodName: string): SpyInstance<any, any> {
+  const spy = spyOn(target, methodName);
+  trackedSpies.push({ spy, target, methodName });
+  return spy as SpyInstance<any, any>;
+}
+
+/**
+ * Unregister a specific spy (stop tracking it for auto-restore).
+ * Call this if you want to manage the spy's lifecycle manually.
+ */
+export function unregisterSpy(spy: SpyInstance<any, any>): void {
+  const index = trackedSpies.findIndex((t) => t.spy === spy);
+  if (index !== -1) {
+    trackedSpies.splice(index, 1);
+  }
+}
+
+/**
+ * Restore all tracked spies. Called automatically after each test.
+ */
+export function restoreAllSpies(): void {
+  for (const tracked of trackedSpies) {
+    try {
+      tracked.spy.mockRestore();
+    } catch {
+      // Ignore restore errors
+    }
+  }
+  trackedSpies.length = 0;
+}
+
+/**
+ * Get the count of currently tracked spies (useful for debugging).
+ */
+export function getTrackedSpyCount(): number {
+  return trackedSpies.length;
+}
+
+// Global afterEach - runs after EVERY test to restore any lingering spies
+// This is a safety net in case tests forget to clean up
+afterEach(() => {
+  restoreAllSpies();
+});
+
+/**
+ * Helper to create a mock function with pre-defined return values.
+ * Automatically tracked for cleanup.
+ */
+export function createTrackedMock<T extends (...args: any[]) => any>(
+  implementation: T
+): MockInstance<T> {
+  const mock = vi.fn(implementation) as MockInstance<T>;
+  return mock;
+}
+
+// Re-export common test utilities for convenience
+export { describe, test, expect, beforeEach, afterEach, spyOn, mock } from 'bun:test';
