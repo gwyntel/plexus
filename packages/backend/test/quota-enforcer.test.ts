@@ -86,19 +86,24 @@ describe('QuotaEnforcer', () => {
     });
 
     test('should allow request when rolling quota is under limit', async () => {
-      setConfigForTesting(
-        createTestConfig(
-          {
-            test_rolling: {
-              type: 'rolling',
-              limitType: 'tokens',
-              limit: 10000,
-              duration: '1h',
-            },
+      const testConfig = createTestConfig(
+        {
+          test_rolling: {
+            type: 'rolling',
+            limitType: 'tokens',
+            limit: 10000,
+            duration: '1h',
           },
-          { test_key: { secret: 'sk-test', quota: 'test_rolling' } }
-        )
+        },
+        { test_key: { secret: 'sk-test', quota: 'test_rolling' } }
       );
+      setConfigForTesting(testConfig);
+
+      // Debug: check what getConfig returns
+      const { getConfig } = require('../src/config');
+      const config = getConfig();
+      console.log('DEBUG test_key config:', JSON.stringify(config.keys?.test_key));
+      console.log('DEBUG user_quotas:', JSON.stringify(config.user_quotas));
 
       const result = await quotaEnforcer.checkQuota('test_key');
       expect(result).not.toBeNull();
