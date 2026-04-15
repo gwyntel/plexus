@@ -127,6 +127,17 @@ export async function registerResponsesRoute(
       unifiedRequest.incomingApiType = 'responses';
       unifiedRequest.originalBody = body;
       unifiedRequest.requestId = requestId;
+
+      // Forward cache routing headers for prompt caching support.
+      // These headers enable server-side cache routing at the upstream provider.
+      const sessionId = request.headers['session_id'] as string | undefined;
+      const clientRequestId = request.headers['x-client-request-id'] as string | undefined;
+      if (sessionId || clientRequestId || body.prompt_cache_key) {
+        unifiedRequest.cacheRoutingHeaders = {
+          session_id: sessionId || body.prompt_cache_key,
+          'x-client-request-id': clientRequestId || body.prompt_cache_key,
+        };
+      }
       unifiedRequest = attachKeyAccessPolicy(request, unifiedRequest);
       const xAppHeader = Array.isArray(request.headers['x-app'])
         ? request.headers['x-app'][0]
