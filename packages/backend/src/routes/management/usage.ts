@@ -416,9 +416,14 @@ export async function registerUsageRoutes(
       'Access-Control-Allow-Origin': '*',
     });
 
+    // Limited users must only observe activity for their own key. Admins
+    // (scopeKey === null) continue to receive every event.
+    const scopeKey = scopedKeyName(request);
+
     // Helper to send events to the client
     const sendEvent = (eventType: string, record: any) => {
       if (reply.raw.destroyed) return;
+      if (scopeKey && record?.apiKey !== scopeKey) return;
       reply.raw.write(
         encode({
           data: JSON.stringify(record),

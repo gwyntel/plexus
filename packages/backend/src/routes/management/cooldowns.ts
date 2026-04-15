@@ -1,7 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { CooldownManager } from '../../services/cooldown-manager';
 import { logger } from '../../utils/logger';
-import { isLimited } from './_principal';
+import { requireAdmin } from './_principal';
 
 export async function registerCooldownRoutes(fastify: FastifyInstance) {
   // Read-only view is available to both admin and limited users; cooldown data
@@ -11,55 +11,35 @@ export async function registerCooldownRoutes(fastify: FastifyInstance) {
     return reply.send(cooldowns);
   });
 
-  // Clearing ALL cooldowns is admin-only — too broad a blast radius to expose
-  // to a limited user.
-  fastify.delete('/v0/management/cooldowns', (request, reply) => {
-    if (isLimited(request)) {
-      return reply.code(403).send({
-        error: {
-          message: 'Admin privileges required',
-          type: 'forbidden',
-          code: 403,
-        },
-      });
+  // Clearing cooldowns (all or per-provider) is admin-only. The router uses
+  // cooldowns to steer away from providers with real failure signals (rate
+  // limits, outages, quota exhaustion), so forcing a retry has system-wide
+  // blast radius and is not a safe self-service action for a key holder.
+  fastify.delete(
+    '/v0/management/cooldowns',
+    { preHandler: requireAdmin },
+    (_request, reply) => {
+      CooldownManager.getInstance().clearCooldown();
+      logger.info('[AUDIT] admin cleared all cooldowns');
+      return reply.send({ success: true });
     }
-    CooldownManager.getInstance().clearCooldown();
-    logger.info('[AUDIT] admin cleared all cooldowns');
-    return reply.send({ success: true });
-  });
+  );
 
-  // Per-provider clear: admin may clear any; a limited user may only clear a
-  // provider that their api_key is explicitly allowed to use. If their
-  // allowedProviders list is empty, the convention elsewhere in the codebase
-  // is "any provider is allowed" — honor that here.
-  fastify.delete('/v0/management/cooldowns/:provider', (request, reply) => {
-    const params = request.params as any;
-    const query = request.query as any;
-    const provider = params.provider as string;
-    const model = query.model as string | undefined;
+  fastify.delete(
+    '/v0/management/cooldowns/:provider',
+    { preHandler: requireAdmin },
+    (request, reply) => {
+      const params = request.params as any;
+      const query = request.query as any;
+      const provider = params.provider as string;
+      const model = query.model as string | undefined;
 
-    const principal = request.principal!;
-    if (principal.role === 'limited') {
-      const allowed = principal.allowedProviders ?? [];
-      if (allowed.length > 0 && !allowed.includes(provider)) {
-        return reply.code(403).send({
-          error: {
-            message: `Your API key is not permitted to clear cooldowns for provider '${provider}'`,
-            type: 'forbidden',
-            code: 403,
-          },
-        });
-      }
-      logger.info(
-        `[AUDIT] limited user '${principal.keyName}' cleared cooldown for provider='${provider}' model='${model ?? '*'}'`
-      );
-    } else {
       logger.info(
         `[AUDIT] admin cleared cooldown for provider='${provider}' model='${model ?? '*'}'`
       );
-    }
 
-    CooldownManager.getInstance().clearCooldown(provider, model);
-    return reply.send({ success: true });
-  });
+      CooldownManager.getInstance().clearCooldown(provider, model);
+      return reply.send({ success: true });
+    }
+  );
 }
