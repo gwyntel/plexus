@@ -218,6 +218,13 @@
       "when": 1776318264223,
       "tag": "0030_illegal_forgotten_one",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "6",
+      "when": 1776319522506,
+      "tag": "0031_parched_patriot",
+      "breakpoints": true
     }
   ]
 }
