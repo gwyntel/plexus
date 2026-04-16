@@ -1,0 +1,25 @@
+name: PR Tests
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, ready_for_review, reopened]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: bun run install:all
+
+      - name: Run tests
+        run: cd packages/backend && bun test
