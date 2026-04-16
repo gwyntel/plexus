@@ -20,6 +20,7 @@ import { PoeQuotaChecker } from './checkers/poe-checker';
 import { GeminiCliQuotaChecker } from './checkers/gemini-cli-checker';
 import { AntigravityQuotaChecker } from './checkers/antigravity-checker';
 import { OllamaQuotaChecker } from './checkers/ollama-checker';
+import { NeuralwattQuotaChecker } from './checkers/neuralwatt-checker';
 
 const CHECKER_REGISTRY: Record<string, new (config: QuotaCheckerConfig) => QuotaChecker> = {
   synthetic: SyntheticQuotaChecker,
@@ -43,6 +44,7 @@ const CHECKER_REGISTRY: Record<string, new (config: QuotaCheckerConfig) => Quota
   'gemini-cli': GeminiCliQuotaChecker,
   antigravity: AntigravityQuotaChecker,
   ollama: OllamaQuotaChecker,
+  neuralwatt: NeuralwattQuotaChecker,
 };
 
 export class QuotaCheckerFactory {

@@ -38,6 +38,8 @@ export { GeminiCliQuotaDisplay } from './GeminiCliQuotaDisplay';
 export { GeminiCliQuotaConfig } from './GeminiCliQuotaConfig';
 export { AntigravityQuotaDisplay } from './AntigravityQuotaDisplay';
 export { AntigravityQuotaConfig } from './AntigravityQuotaConfig';
+export { NeuralwattQuotaDisplay } from './NeuralwattQuotaDisplay';
+export { NeuralwattQuotaConfig } from './NeuralwattQuotaConfig';
 export { CombinedBalancesCard } from './CombinedBalancesCard';
 export { CompactBalancesCard } from './CompactBalancesCard';
 export { CompactQuotasCard } from './CompactQuotasCard';

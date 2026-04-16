@@ -51,6 +51,7 @@ import { ApertisCodingPlanQuotaConfig } from '../components/quota/ApertisCodingP
 import { KimiCodeQuotaConfig } from '../components/quota/KimiCodeQuotaConfig';
 import { PoeQuotaConfig } from '../components/quota/PoeQuotaConfig';
 import { OllamaQuotaConfig } from '../components/quota/OllamaQuotaConfig';
+import { NeuralwattQuotaConfig } from '../components/quota/NeuralwattQuotaConfig';
 
 const KNOWN_APIS = [
   'chat',
@@ -95,6 +96,7 @@ const QUOTA_CHECKER_TYPES_FALLBACK = [
   'gemini-cli',
   'antigravity',
   'ollama',
+  'neuralwatt',
 ] as const;
 
 /** Maps an oauth_provider value to the one checker type relevant for it, or null. */
@@ -2010,6 +2012,23 @@ export const Providers = () => {
               {selectedQuotaCheckerType && selectedQuotaCheckerType === 'gemini-cli' && (
                 <div className="mt-3 p-3 border border-border-glass rounded-md bg-bg-subtle">
                   <GeminiCliQuotaConfig
+                    options={editingProvider.quotaChecker?.options || {}}
+                    onChange={(options) =>
+                      setEditingProvider({
+                        ...editingProvider,
+                        quotaChecker: {
+                          ...editingProvider.quotaChecker,
+                          options,
+                        } as Provider['quotaChecker'],
+                      })
+                    }
+                  />
+                </div>
+              )}
+
+              {selectedQuotaCheckerType && selectedQuotaCheckerType === 'neuralwatt' && (
+                <div className="mt-3 p-3 border border-border-glass rounded-md bg-bg-subtle">
+                  <NeuralwattQuotaConfig
                     options={editingProvider.quotaChecker?.options || {}}
                     onChange={(options) =>
                       setEditingProvider({

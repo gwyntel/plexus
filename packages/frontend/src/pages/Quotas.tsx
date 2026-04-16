@@ -26,6 +26,7 @@ import {
   AntigravityQuotaDisplay,
   ApertisCodingPlanQuotaDisplay,
   OllamaQuotaDisplay,
+  NeuralwattQuotaDisplay,
   CombinedBalancesCard,
   QuotaHistoryModal,
   BalanceHistoryModal,
@@ -53,6 +54,7 @@ const CHECKER_DISPLAY_NAMES: Record<string, string> = {
   apertis: 'Apertis',
   'apertis-coding-plan': 'Apertis Coding',
   ollama: 'Ollama',
+  neuralwatt: 'Neuralwatt',
 };
 
 export const Quotas = () => {
@@ -164,6 +166,11 @@ export const Quotas = () => {
     return groups;
   }, [quotas]);
 
+  // Checkers that are categorized as 'balance' but also have rate-limit windows
+  // (e.g. neuralwatt has a subscription/$ balance AND a monthly/kWh quota).
+  // These should appear in BOTH the balance card and the rate-limit display.
+  const BALANCE_CHECKERS_WITH_RATE_LIMIT = new Set(['neuralwatt']);
+
   // Separate into balance and rate-limit categories using the authoritative checkerCategory field.
   const balanceGroups = useMemo(() => {
     return Object.entries(groupedQuotas)
@@ -173,7 +180,13 @@ export const Quotas = () => {
 
   const rateLimitGroups = useMemo(() => {
     return Object.entries(groupedQuotas)
-      .filter(([, quotasList]) => quotasList.some((q) => q.checkerCategory === 'rate-limit'))
+      .filter(([, quotasList]) =>
+        quotasList.some(
+          (q) =>
+            q.checkerCategory === 'rate-limit' ||
+            BALANCE_CHECKERS_WITH_RATE_LIMIT.has(q.checkerType || q.checkerId)
+        )
+      )
       .sort(([a], [b]) => a.localeCompare(b));
   }, [groupedQuotas]);
 
@@ -244,6 +257,7 @@ export const Quotas = () => {
       'apertis-coding-plan': <ApertisCodingPlanQuotaDisplay result={result} isCollapsed={false} />,
       antigravity: <AntigravityQuotaDisplay result={result} isCollapsed={false} />,
       ollama: <OllamaQuotaDisplay result={result} isCollapsed={false} />,
+      neuralwatt: <NeuralwattQuotaDisplay result={result} isCollapsed={false} />,
     };
 
     const display = DISPLAY_MAP[checkerType];
