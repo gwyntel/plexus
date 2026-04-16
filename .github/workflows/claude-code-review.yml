@@ -31,12 +31,26 @@ jobs:
         with:
           fetch-depth: 1
 
+      - name: Register secrets for masking
+        uses: actions/github-script@v7
+        with:
+          script: |
+            core.setSecret(process.env.PLEXUS_API_KEY)
+            core.setSecret(process.env.PLEXUS_BASE_URL)
+        env:
+          PLEXUS_API_KEY: ${{ secrets.PLEXUS_API_KEY }}
+          PLEXUS_BASE_URL: ${{ secrets.PLEXUS_BASE_URL }}
+
       - name: Run Claude Code Review
         id: claude-review
         uses: anthropics/claude-code-action@v1
         env:
           ANTHROPIC_BASE_URL: ${{ secrets.PLEXUS_BASE_URL }}
-          ANTHROPIC_SMALL_FAST_MODEL: ${{ vars.PLEXUS_MODEL }}
+          ANTHROPIC_API_KEY: ${{ secrets.PLEXUS_API_KEY }}
+          ANTHROPIC_SMALL_FAST_MODEL: ${{ vars.PLEXUS_SMALL_MODEL }}
+          ANTHROPIC_DEFAULT_SONNET_MODEL: ${{ vars.PLEXUS_MODEL }}
+          ANTHROPIC_DEFAULT_HAIKU_MODEL: ${{ vars.PLEXUS_SMALL_MODEL }}
+          ANTHROPIC_DEFAULT_OPUS_MODEL: ${{ vars.PLEXUS_MODEL }}
         with:
           anthropic_api_key: ${{ secrets.PLEXUS_API_KEY }}
           claude_args: >-
