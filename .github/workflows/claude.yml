@@ -1,14 +1,14 @@
 name: Claude Code
 
-# The AI_DATA repository secret controls which models and API endpoint
-# the Claude Code action uses. It must be a JSON object with this shape:
+# The Claude Code action is configured via repository secrets and variables:
 #
-#   {
-#     "base_url": "<url>",                            # Proxy URL → ANTHROPIC_BASE_URL
-#     "model_name": "glm-5.1",                        # Main work model → --model, ANTHROPIC_DEFAULT_SONNET_MODEL, ANTHROPIC_DEFAULT_OPUS_MODEL
-#     "small_model_name": "claude-haiku-4-5",          # Classification model → ANTHROPIC_SMALL_FAST_MODEL, ANTHROPIC_DEFAULT_HAIKU_MODEL
-#     "api_key": "sk-..."                              # API key → ANTHROPIC_API_KEY (auto-masked via core.setSecret)
-#   }
+#   Secrets:
+#     PLEXUS_API_KEY   — API key for the proxy
+#     PLEXUS_BASE_URL  — Proxy URL (ANTHROPIC_BASE_URL)
+#
+#   Variables:
+#     PLEXUS_MODEL       — Main work model (e.g. glm-5.1)
+#     PLEXUS_SMALL_MODEL — Fast/classification model (e.g. claude-haiku-4-5)
 #
 on:
   issue_comment:
@@ -40,33 +40,19 @@ jobs:
         with:
           fetch-depth: 1
 
-      - name: Parse AI config from secret
-        id: ai_config
-        uses: actions/github-script@v7
-        env:
-          AI_DATA: ${{ secrets.AI_DATA }}
-        with:
-          script: |
-            const ai = JSON.parse(process.env.AI_DATA);
-            core.setOutput('base_url', ai.base_url);
-            core.setOutput('model', ai.model_name);
-            core.setOutput('small_model', ai.small_model_name);
-            core.setSecret(ai.api_key);
-            core.setOutput('api_key', ai.api_key);
-
       - name: Run Claude Code
         id: claude
         uses: anthropics/claude-code-action@v1
         env:
-          ANTHROPIC_BASE_URL: ${{ steps.ai_config.outputs.base_url }}
-          ANTHROPIC_SMALL_FAST_MODEL: ${{ steps.ai_config.outputs.small_model }}
-          ANTHROPIC_DEFAULT_SONNET_MODEL: ${{ steps.ai_config.outputs.model }}
-          ANTHROPIC_DEFAULT_HAIKU_MODEL: ${{ steps.ai_config.outputs.small_model }}
-          ANTHROPIC_DEFAULT_OPUS_MODEL: ${{ steps.ai_config.outputs.model }}
-          ANTHROPIC_API_KEY: ${{ steps.ai_config.outputs.api_key }}
+          ANTHROPIC_BASE_URL: ${{ secrets.PLEXUS_BASE_URL }}
+          ANTHROPIC_SMALL_FAST_MODEL: ${{ vars.PLEXUS_SMALL_MODEL }}
+          ANTHROPIC_DEFAULT_SONNET_MODEL: ${{ vars.PLEXUS_MODEL }}
+          ANTHROPIC_DEFAULT_HAIKU_MODEL: ${{ vars.PLEXUS_SMALL_MODEL }}
+          ANTHROPIC_DEFAULT_OPUS_MODEL: ${{ vars.PLEXUS_MODEL }}
+          ANTHROPIC_API_KEY: ${{ secrets.PLEXUS_API_KEY }}
         with:
-          anthropic_api_key: ${{ steps.ai_config.outputs.api_key }}
-          claude_args: '--model ${{ steps.ai_config.outputs.model }}'
+          anthropic_api_key: ${{ secrets.PLEXUS_API_KEY }}
+          claude_args: '--model ${{ vars.PLEXUS_MODEL }}'
 
           # This is an optional setting that allows Claude to read CI results on PRs
           additional_permissions: |
