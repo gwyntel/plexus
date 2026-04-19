@@ -125,9 +125,7 @@ export class QuotaScheduler {
 
     const DEFAULT_EXHAUSTION_THRESHOLD = 99;
     const checker = this.checkers.get(result.checkerId);
-    const exhaustionThreshold =
-      (checker?.config?.options?.maxUtilizationPercent as number | undefined) ??
-      DEFAULT_EXHAUSTION_THRESHOLD;
+    const exhaustionThreshold = checker?.exhaustionThreshold ?? DEFAULT_EXHAUSTION_THRESHOLD;
     const cooldownManager = CooldownManager.getInstance();
     const provider = result.provider;
 
@@ -167,9 +165,38 @@ export class QuotaScheduler {
         `quota exhausted (threshold: ${exhaustionThreshold}%) — ${exhaustedWindowDescription}`
       );
     } else {
-      // All windows are healthy — clear any standing provider-wide quota cooldown.
-      await cooldownManager.markProviderSuccess(provider, '');
+      // This checker's windows are all healthy — but before clearing the provider-wide
+      // cooldown, verify no OTHER checker for the same provider considers it exhausted.
+      // This prevents a lenient checker (e.g. threshold=99) from clearing a cooldown
+      // that a strict checker (e.g. threshold=30) just set.
+      // However, if THIS checker has the strictest threshold (i.e. it's the one that
+      // likely set the cooldown), allow it to clear its own cooldown.
+      const strictestThreshold = this.getStrictestThresholdForProvider(provider);
+      if (checker && checker.exhaustionThreshold <= strictestThreshold) {
+        // This checker is at least as strict as any other — safe to clear
+        await cooldownManager.markProviderSuccess(provider, '');
+      } else {
+        logger.debug(
+          `[quota-scheduler] Checker '${result.checkerId}' sees provider '${provider}' as healthy, ` +
+            `but a stricter checker (threshold: ${strictestThreshold}%) may have set the cooldown. Keeping it.`
+        );
+      }
     }
+  }
+
+  /**
+   * Get the lowest (strictest) exhaustion threshold among all checkers
+   * for a given provider. Returns 99 (default) if no checkers have custom thresholds.
+   */
+  private getStrictestThresholdForProvider(provider: string): number {
+    let strictest = 99;
+    for (const [, checker] of this.checkers) {
+      if (checker.config.provider !== provider) continue;
+      if (checker.exhaustionThreshold < strictest) {
+        strictest = checker.exhaustionThreshold;
+      }
+    }
+    return strictest;
   }
 
   private async persistResult(result: QuotaCheckResult): Promise<void> {

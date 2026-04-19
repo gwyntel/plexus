@@ -47,6 +47,15 @@ export class SyntheticQuotaChecker extends QuotaChecker {
     this.endpoint = this.getOption<string>('endpoint', 'https://api.synthetic.new/v2/quotas');
   }
 
+  /**
+   * Override exhaustion threshold from config option.
+   * Allows reserving quota on shared keys — e.g. maxUtilizationPercent=30
+   * means the provider is cooled down at 30% usage, preserving 70%.
+   */
+  override get exhaustionThreshold(): number {
+    return this.getOption<number>('maxUtilizationPercent', 99);
+  }
+
   async checkQuota(): Promise<QuotaCheckResult> {
     const apiKey = this.requireOption<string>('apiKey');
 
