@@ -378,7 +378,8 @@ providers:
 - Providers with `oauth_provider: anthropic` must use `quota_checker.type: claude-code`.
 
 **Checker notes:**
-- `synthetic`: Derives `options.apiKey` from provider `api_key` by default. Supports `options.maxUtilizationPercent` (0–100, default 99) — when any quota window reaches this utilization percentage, the provider is placed on cooldown until the window resets. Set lower to reserve quota for other consumers (e.g. `30` = provider treated as exhausted at 30% usage, preserving 70%).
+- `maxUtilizationPercent` (available on all checker types, default 99): When any quota window reaches this utilization percentage, the provider is placed on cooldown until the window resets. Set lower to reserve quota for other consumers (e.g. `30` = provider treated as exhausted at 30% usage, preserving 70%). Must be between 1 and 100. Use `enabled: false` to fully disable a provider instead of setting this to 0.
+- `synthetic`: Derives `options.apiKey` from provider `api_key` by default.
 - `naga`: Balance-based checker.
 - `nanogpt`: NanoGPT usage checker.
 - `openai-codex`: OAuth-backed; reads token from `auth.json`.

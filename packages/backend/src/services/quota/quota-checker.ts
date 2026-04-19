@@ -36,11 +36,12 @@ export abstract class QuotaChecker {
 
   /**
    * Maximum utilization percentage at which this checker considers a provider exhausted.
-   * Override in subclasses to customize (e.g. to reserve quota for other consumers).
-   * Default: 99 (provider cooled down only when truly exhausted).
+   * Reads from `options.maxUtilizationPercent` if set (and valid), otherwise defaults to 99.
+   * Subclasses can override for checker-specific behavior.
    */
   get exhaustionThreshold(): number {
-    return 99;
+    const val = this.config.options.maxUtilizationPercent;
+    return typeof val === 'number' && val > 0 ? val : 99;
   }
 
   abstract checkQuota(): Promise<QuotaCheckResult>;

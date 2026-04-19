@@ -40,7 +40,7 @@ export const SyntheticQuotaConfig: React.FC<SyntheticQuotaConfigProps> = ({
           value={(options.maxUtilizationPercent as number) ?? ''}
           onChange={(e) => {
             const parsed = parseInt(e.target.value, 10);
-            handleChange('maxUtilizationPercent', isNaN(parsed) ? '' : parsed);
+            handleChange('maxUtilizationPercent', isNaN(parsed) ? undefined : parsed);
           }}
           placeholder="99"
         />
