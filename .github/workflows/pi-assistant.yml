@@ -31,6 +31,5 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           provider: openrouter
           model: ${{ vars.PLEXUS_MODEL }}
-          pi_auth_json: ${{ secrets.PI_AUTH_JSON }}
           pi_models_json: ${{ secrets.PI_MODELS_JSON }}
           share_session: false
