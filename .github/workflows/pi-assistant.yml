@@ -27,35 +27,10 @@ jobs:
 
       - name: Run pi-action
         uses: mcowger/pi-action@main
-        env:
-          PLEXUS_API_KEY: ${{ secrets.PLEXUS_API_KEY }}
-          PLEXUS_BASE_URL: ${{ secrets.PLEXUS_BASE_URL }}
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           provider: openrouter
           model: ${{ vars.PLEXUS_MODEL }}
-          pi_auth_json: |
-            {
-              "openrouter": {"type": "api_key", "key": "PLEXUS_API_KEY"}
-            }
-          pi_models_json: |
-            {
-              "providers": {
-                "openrouter": {
-                  "baseUrl": "PLEXUS_BASE_URL",
-                  "apiKey": "PLEXUS_API_KEY",
-                  "api": "openai-completions",
-                  "models": [
-                    {
-                      "id": "moonshotai/kimi-k2.5",
-                      "name": "Kimi K2.5",
-                      "reasoning": true,
-                      "input": ["text", "image"],
-                      "contextWindow": 262144,
-                      "maxTokens": 65536
-                    }
-                  ]
-                }
-              }
-            }
+          pi_auth_json: ${{ secrets.PI_AUTH_JSON }}
+          pi_models_json: ${{ secrets.PI_MODELS_JSON }}
           share_session: false
