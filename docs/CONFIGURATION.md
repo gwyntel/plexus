@@ -378,7 +378,7 @@ providers:
 - Providers with `oauth_provider: anthropic` must use `quota_checker.type: claude-code`.
 
 **Checker notes:**
-- `synthetic`: Derives `options.apiKey` from provider `api_key` by default.
+- `synthetic`: Derives `options.apiKey` from provider `api_key` by default. Supports `options.maxUtilizationPercent` (0–100, default 99) — when any quota window reaches this utilization percentage, the provider is placed on cooldown until the window resets. Set lower to reserve quota for other consumers (e.g. `30` = provider treated as exhausted at 30% usage, preserving 70%).
 - `naga`: Balance-based checker.
 - `nanogpt`: NanoGPT usage checker.
 - `openai-codex`: OAuth-backed; reads token from `auth.json`.
@@ -401,6 +401,19 @@ providers:
       type: synthetic
       enabled: true
       intervalMinutes: 30
+
+  # Shared Synthetic key with quota reservation — provider is cooled down
+  # when any window hits 30% utilization, preserving 70% for the key owner
+  friend-synthetic:
+    api_base_url:
+      chat: https://api.synthetic.new/openai/v1
+    api_key: syn_friends_api_key
+    quota_checker:
+      type: synthetic
+      enabled: true
+      intervalMinutes: 5
+      options:
+        maxUtilizationPercent: 30
 
   codex:
     api_base_url: oauth://
