@@ -1,4 +1,4 @@
-name: PR Tests and Review
+name: PR Tests
 run-name: "PR: ${{ github.event.pull_request.title }}"
 
 on:
@@ -6,12 +6,7 @@ on:
     types: [opened, synchronize, ready_for_review, reopened]
 
 permissions:
-  contents: write
-  pull-requests: write
-  issues: write
-  checks: write
-  id-token: write
-  actions: read
+  contents: read
 
 jobs:
   test:
@@ -40,84 +35,4 @@ jobs:
       - name: Run backend tests
         run: cd packages/backend && bun run test
 
-  pi-review:
-    name: Pi Code Review
-    needs: test
-    if: needs.test.result == 'success'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Create in-progress check run
-        id: check
-        uses: actions/github-script@v9
-        with:
-          script: |
-            const { data: check } = await github.rest.checks.create({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              name: 'Pi Code Review',
-              head_sha: '${{ github.event.pull_request.head.sha }}',
-              status: 'in_progress',
-              details_url: `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`,
-            });
-            core.setOutput('check_id', check.id);
 
-      - name: Checkout repository
-        uses: actions/checkout@v6
-        with:
-          repository: ${{ github.event.pull_request.head.repo.full_name }}
-          ref: ${{ github.event.pull_request.head.sha }}
-          fetch-depth: 1
-
-      - name: Register secrets for masking
-        uses: actions/github-script@v9
-        with:
-          script: |
-            core.setSecret(process.env.PLEXUS_API_KEY)
-            core.setSecret(process.env.PLEXUS_BASE_URL)
-        env:
-          PLEXUS_API_KEY: ${{ secrets.PLEXUS_API_KEY }}
-          PLEXUS_BASE_URL: ${{ secrets.PLEXUS_BASE_URL }}
-
-      - name: Run Pi Code Review
-        id: pi
-        uses: shaftoe/pi-coding-agent-action@v2
-        env:
-          PI_BASE_URL: ${{ secrets.PLEXUS_BASE_URL }}
-          PI_API_KEY: ${{ secrets.PLEXUS_API_KEY }}
-          PI_PROVIDER_NAME: plexus-custom
-          PI_MODEL_ID: ${{ vars.PLEXUS_MODEL }}
-          PI_MODEL_NAME: ${{ vars.PLEXUS_MODEL }}
-        with:
-          github_token: ${{ github.token }}
-          provider: plexus-custom
-          model: ${{ vars.PLEXUS_MODEL }}
-          token: ${{ secrets.PLEXUS_API_KEY }}
-          thinking_level: high
-          extensions: |
-            git:github.com/mcowger/pi-env-var-provider
-          load_builtin_extensions: true
-          prompt: |
-            Review the pull request ${{ github.repository }}/pull/${{ github.event.pull_request.number }}.
-
-            1. Read the PR diff using `git diff` and understand the changes.
-            2. Analyze the code for bugs, security issues, performance problems, and style concerns.
-            3. Post a summary review comment on the PR describing your findings.
-
-            Be thorough but concise. Focus on actionable issues, not nitpicks.
-
-            At the end of your review comment, include exactly this line and nothing else:
-            "🤖 Automated review"
-
-      - name: Update check run result
-        if: always()
-        uses: actions/github-script@v9
-        with:
-          script: |
-            const success = '${{ steps.pi.outcome }}' === 'success';
-            await github.rest.checks.update({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              check_run_id: ${{ steps.check.outputs.check_id }},
-              status: 'completed',
-              conclusion: success ? 'success' : 'failure',
-            });
