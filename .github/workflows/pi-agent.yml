@@ -7,19 +7,8 @@ name: Pi Coding Agent
 #     PLEXUS_BASE_URL  — Proxy URL (e.g. https://ai.home.cowger.us/v1)
 #
 #   Variables:
-#     PLEXUS_MODEL       — Main work model; must be a name known to the
-#                          overridden provider (openrouter), e.g.
-#                          anthropic/claude-sonnet-4-5 or z-ai/glm-4.6
-#     PLEXUS_SMALL_MODEL — Fast/classification model (same constraint)
-#
-# The local plexus-override extension (.github/pi-extensions/plexus-override)
-# mutates the pi-ai built-in openrouter model objects in place so their baseUrl
-# points at PLEXUS_BASE_URL. This is required because pi-coding-agent-action's
-# Agent constructor caches the resolved Model reference BEFORE extensions load;
-# calling pi.registerProvider() in override mode replaces the registry's model
-# objects via .map() and leaves the cached reference stale. In-place mutation
-# of the source-of-truth objects updates every reference, including the
-# Agent's, so requests are routed to the Plexus proxy with the Plexus API key.
+#     PLEXUS_MODEL       — Main work model (e.g. glm-5.1)
+#     PLEXUS_SMALL_MODEL — Fast/classification model (e.g. claude-haiku-4-5)
 #
 # Trigger with: @pi in comments, PR reviews, or issue bodies
 #
@@ -69,17 +58,22 @@ jobs:
         id: pi
         uses: shaftoe/pi-coding-agent-action@v2
         env:
-          PLEXUS_BASE_URL: ${{ secrets.PLEXUS_BASE_URL }}
-          PLEXUS_API_KEY: ${{ secrets.PLEXUS_API_KEY }}
+          # Secrets referenced as env vars for the custom provider extension
+          PI_BASE_URL: ${{ secrets.PLEXUS_BASE_URL }}
+          PI_API_KEY: ${{ secrets.PLEXUS_API_KEY }}
+          PI_PROVIDER_NAME: plexus-custom
+          PI_MODEL_ID: ${{ vars.PLEXUS_MODEL }}
+          PI_MODEL_NAME: ${{ vars.PLEXUS_MODEL }}
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          provider: openrouter
+          # The custom provider extension handles env-var-based model resolution
+          provider: plexus-custom
           model: ${{ vars.PLEXUS_MODEL }}
           token: ${{ secrets.PLEXUS_API_KEY }}
           thinking_level: low
-          trigger: '@pi'
+          # Load the custom env-var provider extension
           extensions: |
-            .github/pi-extensions/plexus-override
+            git:github.com/mcowger/pi-env-var-provider
           load_builtin_extensions: true
 
   # Automated PR code review (no trigger required)
@@ -110,15 +104,18 @@ jobs:
         id: pi-review
         uses: shaftoe/pi-coding-agent-action@v2
         env:
-          PLEXUS_BASE_URL: ${{ secrets.PLEXUS_BASE_URL }}
-          PLEXUS_API_KEY: ${{ secrets.PLEXUS_API_KEY }}
+          PI_BASE_URL: ${{ secrets.PLEXUS_BASE_URL }}
+          PI_API_KEY: ${{ secrets.PLEXUS_API_KEY }}
+          PI_PROVIDER_NAME: plexus-custom
+          PI_MODEL_ID: ${{ vars.PLEXUS_MODEL }}
+          PI_MODEL_NAME: ${{ vars.PLEXUS_MODEL }}
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          provider: openrouter
+          provider: plexus-custom
           model: ${{ vars.PLEXUS_MODEL }}
           token: ${{ secrets.PLEXUS_API_KEY }}
           thinking_level: high
           prompt: 'Review this pull request for code quality, security issues, potential bugs, and provide constructive feedback. Focus on the changes introduced in this PR.'
           extensions: |
-            .github/pi-extensions/plexus-override
+            git:github.com/mcowger/pi-env-var-provider
           load_builtin_extensions: true

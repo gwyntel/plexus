@@ -258,16 +258,19 @@ jobs:
         timeout-minutes: 5
         uses: shaftoe/pi-coding-agent-action@v2
         env:
-          PLEXUS_BASE_URL: ${{ secrets.PLEXUS_BASE_URL }}
-          PLEXUS_API_KEY: ${{ secrets.PLEXUS_API_KEY }}
+          PI_BASE_URL: ${{ secrets.PLEXUS_BASE_URL }}
+          PI_API_KEY: ${{ secrets.PLEXUS_API_KEY }}
+          PI_PROVIDER_NAME: plexus-custom
+          PI_MODEL_ID: ${{ vars.PLEXUS_MODEL }}
+          PI_MODEL_NAME: ${{ vars.PLEXUS_MODEL }}
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
-          provider: openrouter
+          provider: plexus-custom
           model: ${{ vars.PLEXUS_MODEL }}
           token: ${{ secrets.PLEXUS_API_KEY }}
           thinking_level: medium
           extensions: |
-            .github/pi-extensions/plexus-override
+            git:github.com/mcowger/pi-env-var-provider
           prompt: |
             You are a technical writer creating release notes for a software project called Plexus, an LLM API gateway.
 
@@ -295,7 +298,11 @@ jobs:
           echo "release_notes outcome: ${{ steps.release_notes.outcome }}"
 
       # Note: The Pi action posts results as comments, which doesn't work on tag pushes
-      # (no issue/PR context). Using raw summary directly for release body.
+      # (no issue/PR context). Using raw summary for release body.
+      - name: Set release notes fallback
+        id: extract_notes
+        run: |
+          echo "result=${{ steps.pr_info.outputs.pr_summary }}" >> "$GITHUB_OUTPUT"
 
       - name: Create Release
         uses: softprops/action-gh-release@v3
@@ -307,4 +314,4 @@ jobs:
             plexus.exe
           draft: false
           prerelease: false
-          body: ${{ steps.pr_info.outputs.pr_summary }}
+          body: ${{ steps.extract_notes.outputs.result || steps.pr_info.outputs.pr_summary }}
