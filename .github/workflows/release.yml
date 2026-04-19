@@ -266,6 +266,8 @@ jobs:
           prompt: |
             You are a technical writer creating release notes for a software project called Plexus, an LLM API gateway.
 
+            IMPORTANT: Do NOT use any tools. Do NOT read any files or run any commands. You must respond with your full output in a single turn using only the information provided below.
+
             ## Source Changes
 
             ${{ steps.pr_info.outputs.pr_summary }}
