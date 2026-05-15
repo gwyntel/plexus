@@ -3,6 +3,7 @@ export { WaferQuotaDisplay } from './WaferQuotaDisplay';
 export { WaferQuotaConfig } from './WaferQuotaConfig';
 export { OpenCodeGoQuotaConfig } from './OpenCodeGoQuotaConfig';
 export { RoutingRunQuotaConfig } from './RoutingRunQuotaConfig';
+export { CrofQuotaConfig } from './CrofQuotaConfig';
 export { CombinedBalancesCard } from './CombinedBalancesCard';
 export { CompactBalancesCard } from './CompactBalancesCard';
 export { CompactQuotasCard } from './CompactQuotasCard';

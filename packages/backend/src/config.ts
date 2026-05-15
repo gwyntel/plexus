@@ -217,6 +217,10 @@ const OpenCodeGoQuotaCheckerOptionsSchema = z.object({
   endpoint: z.string().url().optional(),
 });
 
+const CrofQuotaCheckerOptionsSchema = z.object({
+  endpoint: z.string().url().optional(),
+});
+
 const ProviderQuotaCheckerSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('naga'),
@@ -399,6 +403,13 @@ const ProviderQuotaCheckerSchema = z.discriminatedUnion('type', [
     intervalMinutes: z.number().min(1).default(30),
     id: z.string().trim().min(1).optional(),
     options: OpenCodeGoQuotaCheckerOptionsSchema.optional(),
+  }),
+  z.object({
+    type: z.literal('crof'),
+    enabled: z.boolean().default(true),
+    intervalMinutes: z.number().min(1).default(30),
+    id: z.string().trim().min(1).optional(),
+    options: CrofQuotaCheckerOptionsSchema.optional().default({}),
   }),
 ]);
 

@@ -209,4 +209,5 @@ export async function loadAllCheckers(): Promise<void> {
   await import('./checkers/devpass-checker');
   await import('./checkers/wafer-checker');
   await import('./checkers/opencode-go-checker');
+  await import('./checkers/crof-checker');
 }
