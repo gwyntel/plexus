@@ -109,19 +109,17 @@ export const Models = () => {
   const handleAutoAddTargets = useCallback(
     (targets: Array<{ provider: string; model: string }>) => {
       setEditingAlias((prev: Alias) => {
-        const groups = [...prev.target_groups];
-        const g0 = groups[0];
+        const updatedTargets = [...(prev.target_groups[0]?.targets ?? [])];
         for (const t of targets) {
-          const alreadyExists = g0?.targets.some(
+          const alreadyExists = updatedTargets.some(
             (x: any) => x.provider === t.provider && x.model === t.model
           );
           if (!alreadyExists) {
-            groups[0] = {
-              ...g0,
-              targets: [...(g0?.targets ?? []), { ...t, enabled: true }],
-            };
+            updatedTargets.push({ ...t, enabled: true });
           }
         }
+        const groups = [...prev.target_groups];
+        groups[0] = { ...groups[0], targets: updatedTargets };
         return { ...prev, target_groups: groups };
       });
       setIsAutoAddModalOpen(false);
