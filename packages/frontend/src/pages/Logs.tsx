@@ -65,6 +65,7 @@ import {
   Timer,
   CheckCircle,
   XCircle,
+  Gauge,
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { useNavigate } from 'react-router-dom';
@@ -167,6 +168,13 @@ export const Logs = () => {
   // progressTick is incremented to trigger re-renders when progress data changes.
   // The value itself is intentionally unused; only the setter is called.
   const [, setProgressTick] = useState(0);
+  // liveTick triggers re-renders every 100ms so pending-request durations update live.
+  const [, setLiveTick] = useState(0);
+
+  useEffect(() => {
+    const interval = setInterval(() => setLiveTick((t) => t + 1), 100);
+    return () => clearInterval(interval);
+  }, []);
 
   const loadLogs = async () => {
     setLoading(true);
@@ -645,31 +653,45 @@ export const Logs = () => {
                                 log.responseStatus === 'pending'
                                   ? progressMapRef.current.get(log.requestId)
                                   : undefined;
+                              const liveDuration = formatMs(
+                                log.durationMs != null ? log.durationMs : Date.now() - log.startTime
+                              );
                               if (progress) {
                                 return (
                                   <div
                                     style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}
                                   >
-                                    <div
-                                      style={{ display: 'flex', alignItems: 'center', gap: '4px' }}
+                                    <span>Duration: {liveDuration}</span>
+                                    <span
+                                      style={{
+                                        color: 'var(--color-text-secondary)',
+                                        fontSize: '0.85em',
+                                        display: 'flex',
+                                        alignItems: 'center',
+                                        gap: '4px',
+                                      }}
                                     >
                                       <CloudDownload size={11} className="text-yellow-400" />
                                       <span>{formatBytes(progress.bytesReceived)}</span>
-                                    </div>
+                                    </span>
                                     {progress.bytesPerSec != null && (
                                       <span
                                         style={{
                                           color: 'var(--color-text-secondary)',
                                           fontSize: '0.85em',
+                                          display: 'flex',
+                                          alignItems: 'center',
+                                          gap: '4px',
                                         }}
                                       >
+                                        <Gauge size={11} className="text-text-secondary" />
                                         {formatBytes(progress.bytesPerSec)}/s
                                       </span>
                                     )}
                                   </div>
                                 );
                               }
-                              return formatMs(log.durationMs);
+                              return liveDuration;
                             })()}
                           </div>
                         </div>
@@ -678,7 +700,8 @@ export const Logs = () => {
                             Meta
                           </div>
                           <div className="text-text">
-                            {log.messageCount || 0} msg / {log.toolCallsCount || 0} tools
+                            {(log.messageCount || 0) === 0 ? '-' : log.messageCount} msg /{' '}
+                            {(log.toolCallsCount || 0) === 0 ? '-' : log.toolCallsCount} tools
                           </div>
                         </div>
                       </div>
@@ -754,7 +777,7 @@ export const Logs = () => {
                   </th>
                   <th
                     className="px-2 py-1.5 text-center border-b border-border-glass border-r border-r-border-glass bg-bg-hover font-semibold text-text-secondary text-[11px] uppercase tracking-wider whitespace-nowrap"
-                    style={{ minWidth: '70px' }}
+                    style={{ minWidth: '130px' }}
                   >
                     {renderSortableHeader('Cost', 'costTotal')}
                   </th>
@@ -1135,81 +1158,78 @@ export const Logs = () => {
                       </td>
                       <td className="px-2 py-1.5 border-b border-border-glass text-text align-middle">
                         {log.costTotal !== undefined && log.costTotal !== null ? (
-                          <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
-                            {/* Left side: Total cost */}
-                            <div style={{ minWidth: '50px' }}>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                            {/* Row 1: Total cost */}
+                            <div>
                               {log.costSource ? (
                                 <CostToolTip
                                   source={log.costSource}
                                   costMetadata={log.costMetadata}
                                 >
                                   <span style={{ fontWeight: '500', cursor: 'help' }}>
-                                    {log.costTotal === 0 ? '∅' : formatCost(log.costTotal)}
+                                    {log.costTotal === 0 ? '-' : formatCost(log.costTotal, 6)}
                                   </span>
                                 </CostToolTip>
                               ) : (
                                 <span style={{ fontWeight: '500' }}>
-                                  {log.costTotal === 0 ? '∅' : formatCost(log.costTotal)}
+                                  {log.costTotal === 0 ? '-' : formatCost(log.costTotal, 6)}
                                 </span>
                               )}
                             </div>
-                            {/* Right side: Breakdown */}
-                            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                <CloudUpload size={10} className="text-blue-400" />
-                                <span
-                                  style={{
-                                    color: 'var(--color-text-secondary)',
-                                    fontSize: '0.85em',
-                                    minWidth: '35px',
-                                  }}
-                                >
-                                  {log.costInput === 0 ? '∅' : formatCost(log.costInput || 0)}
-                                </span>
-                              </div>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                <CloudDownload size={10} className="text-green-400" />
-                                <span
-                                  style={{
-                                    color: 'var(--color-text-secondary)',
-                                    fontSize: '0.85em',
-                                    minWidth: '35px',
-                                  }}
-                                >
-                                  {log.costOutput === 0 ? '∅' : formatCost(log.costOutput || 0)}
-                                </span>
-                              </div>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                <PackageOpen size={10} className="text-orange-400" />
-                                <span
-                                  style={{
-                                    color: 'var(--color-text-secondary)',
-                                    fontSize: '0.85em',
-                                    minWidth: '35px',
-                                  }}
-                                >
-                                  {log.costCached === 0 ? '∅' : formatCost(log.costCached || 0)}
-                                </span>
-                              </div>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                                <PencilLine size={10} className="text-fuchsia-400" />
-                                <span
-                                  style={{
-                                    color: 'var(--color-text-secondary)',
-                                    fontSize: '0.85em',
-                                    minWidth: '35px',
-                                  }}
-                                >
-                                  {log.costCacheWrite === 0
-                                    ? '∅'
-                                    : formatCost(log.costCacheWrite || 0)}
-                                </span>
-                              </div>
+                            {/* Separator */}
+                            <div
+                              style={{
+                                borderTop: '1px solid var(--color-border-glass)',
+                                margin: '1px 2px',
+                              }}
+                            />
+                            {/* Breakdown grid: 2 rows x 4 columns (icon, value, icon, value) */}
+                            <div
+                              style={{
+                                display: 'grid',
+                                gridTemplateColumns: 'auto 1fr auto 1fr',
+                                gap: '2px 4px',
+                                alignItems: 'center',
+                              }}
+                            >
+                              <CloudUpload size={10} className="text-blue-400" />
+                              <span
+                                style={{ color: 'var(--color-text-secondary)', fontSize: '0.85em' }}
+                              >
+                                {log.costInput === 0 ? '$-.----' : formatCost(log.costInput || 0)}
+                              </span>
+                              <CloudDownload size={10} className="text-green-400" />
+                              <span
+                                style={{ color: 'var(--color-text-secondary)', fontSize: '0.85em' }}
+                              >
+                                {log.costOutput === 0 ? '$-.----' : formatCost(log.costOutput || 0)}
+                              </span>
+                              <PackageOpen size={10} className="text-orange-400" />
+                              <span
+                                style={{ color: 'var(--color-text-secondary)', fontSize: '0.85em' }}
+                              >
+                                {log.costCached === 0 ? '$-.----' : formatCost(log.costCached || 0)}
+                              </span>
+                              <PencilLine size={10} className="text-fuchsia-400" />
+                              <span
+                                style={{ color: 'var(--color-text-secondary)', fontSize: '0.85em' }}
+                              >
+                                {log.costCacheWrite === 0
+                                  ? '$-.----'
+                                  : formatCost(log.costCacheWrite || 0)}
+                              </span>
                             </div>
                           </div>
                         ) : (
-                          <span style={{ color: 'var(--color-text-secondary)', fontSize: '1.2em' }}>
-                            ∅
+                          <span
+                            style={{
+                              color: 'var(--color-text-secondary)',
+                              fontSize: '1.2em',
+                              display: 'block',
+                              textAlign: 'center',
+                            }}
+                          >
+                            -
                           </span>
                         )}
                       </td>
@@ -1219,22 +1239,36 @@ export const Logs = () => {
                             log.responseStatus === 'pending'
                               ? progressMapRef.current.get(log.requestId)
                               : undefined;
+                          const liveDuration = formatMs(
+                            log.durationMs != null ? log.durationMs : Date.now() - log.startTime
+                          );
                           if (progress) {
                             return (
-                              <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-                                <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                              <div style={{ display: 'flex', flexDirection: 'column' }}>
+                                <span>Duration: {liveDuration}</span>
+                                <span
+                                  style={{
+                                    color: 'var(--color-text-secondary)',
+                                    fontSize: '0.85em',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '4px',
+                                  }}
+                                >
                                   <CloudDownload size={12} className="text-yellow-400" />
-                                  <span style={{ fontSize: '0.9em' }}>
-                                    {formatBytes(progress.bytesReceived)}
-                                  </span>
-                                </div>
+                                  <span>{formatBytes(progress.bytesReceived)}</span>
+                                </span>
                                 {progress.bytesPerSec != null && (
                                   <span
                                     style={{
                                       color: 'var(--color-text-secondary)',
                                       fontSize: '0.85em',
+                                      display: 'flex',
+                                      alignItems: 'center',
+                                      gap: '4px',
                                     }}
                                   >
+                                    <Gauge size={12} className="text-text-secondary" />
                                     {formatBytes(progress.bytesPerSec)}/s
                                   </span>
                                 )}
@@ -1243,7 +1277,7 @@ export const Logs = () => {
                           }
                           return (
                             <div style={{ display: 'flex', flexDirection: 'column' }}>
-                              <span>Duration: {formatMs(log.durationMs)}</span>
+                              <span>Duration: {liveDuration}</span>
                               <span
                                 style={{
                                   color: 'var(--color-text-secondary)',
@@ -1292,7 +1326,7 @@ export const Logs = () => {
                               <span
                                 style={{ fontWeight: '500', fontSize: '0.9em', minWidth: '20px' }}
                               >
-                                {log.messageCount || 0}
+                                {(log.messageCount || 0) === 0 ? '-' : log.messageCount}
                               </span>
                             </div>
                             <div
@@ -1307,7 +1341,7 @@ export const Logs = () => {
                                   minWidth: '20px',
                                 }}
                               >
-                                {log.toolCallsCount || 0}
+                                {(log.toolCallsCount || 0) === 0 ? '-' : log.toolCallsCount}
                               </span>
                             </div>
                           </div>
@@ -1321,7 +1355,7 @@ export const Logs = () => {
                               <span
                                 style={{ fontWeight: '500', fontSize: '0.9em', minWidth: '20px' }}
                               >
-                                {log.toolsDefined || 0}
+                                {(log.toolsDefined || 0) === 0 ? '-' : log.toolsDefined}
                               </span>
                             </div>
                             <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>

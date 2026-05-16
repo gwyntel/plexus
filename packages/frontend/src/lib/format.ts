@@ -62,19 +62,21 @@ export function formatTokens(tokens: number): string {
 }
 
 /**
- * Format cost in dollars (e.g., "$0.001234", "$1.23")
+ * Format cost in dollars, always showing 4 decimal places.
+ * Costs below $0.0001 are shown as "$<0.0001" to avoid implying zero.
+ * Costs of exactly $0 show "$0.0000".
  */
-export function formatCost(cost: number, maxDecimals: number = 6): string {
-  if (cost === 0) return '$0';
+export function formatCost(cost: number, decimals: number = 4): string {
+  if (cost === 0) return `$${cost.toFixed(decimals)}`;
+  const threshold = Math.pow(10, -decimals);
+  if (cost > 0 && cost < threshold) return `$<${threshold.toFixed(decimals)}`;
   if (cost >= 0.01) {
-    // For costs >= 1 cent, use 2-4 decimals
     return `$${cost.toLocaleString(undefined, {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 4,
+      minimumFractionDigits: decimals,
+      maximumFractionDigits: decimals,
     })}`;
   }
-  // For small costs, show up to maxDecimals
-  return `$${cost.toFixed(maxDecimals)}`;
+  return `$${cost.toFixed(decimals)}`;
 }
 
 /**
