@@ -783,12 +783,17 @@ export function useProviderForm() {
       e.stopPropagation();
       navigate('/quotas');
     };
+
+    const badges: React.ReactNode[] = [];
+
+    // Balance pill
     const balanceMeter = quota.meters.find(
       (m) => m.kind === 'balance' && m.remaining !== undefined
     );
     if (balanceMeter && balanceMeter.remaining !== undefined) {
-      return (
+      badges.push(
         <Badge
+          key="balance"
           status="neutral"
           className="[&_.connection-dot]:hidden cursor-pointer text-[10px] py-0.5 px-2 bg-bg-subtle border border-border text-text-secondary"
           onClick={handleQuotaClick}
@@ -797,6 +802,8 @@ export function useProviderForm() {
         </Badge>
       );
     }
+
+    // Allowance pill
     const allowances = quota.meters.filter((m) => m.kind === 'allowance');
     const primary = allowances.reduce<(typeof allowances)[0] | undefined>((worst, m) => {
       if (!worst) return m;
@@ -804,18 +811,24 @@ export function useProviderForm() {
       const mu = typeof m.utilizationPercent === 'number' ? m.utilizationPercent : 0;
       return mu > wu ? m : worst;
     }, undefined);
-    if (!primary || typeof primary.utilizationPercent !== 'number') return null;
-    const pct = Math.round(primary.utilizationPercent);
-    const status = pct >= 90 ? 'error' : pct >= 70 ? 'warning' : 'connected';
-    return (
-      <Badge
-        status={status}
-        className="[&_.connection-dot]:hidden cursor-pointer text-[10px] py-0.5 px-2"
-        onClick={handleQuotaClick}
-      >
-        {pct}%
-      </Badge>
-    );
+    if (primary && typeof primary.utilizationPercent === 'number') {
+      const pct = Math.round(primary.utilizationPercent);
+      const status = pct >= 90 ? 'error' : pct >= 70 ? 'warning' : 'connected';
+      badges.push(
+        <Badge
+          key="allowance"
+          status={status}
+          className="[&_.connection-dot]:hidden cursor-pointer text-[10px] py-0.5 px-2"
+          onClick={handleQuotaClick}
+        >
+          {pct}%
+        </Badge>
+      );
+    }
+
+    if (!badges.length) return null;
+    if (badges.length === 1) return badges[0];
+    return <div style={{ display: 'flex', gap: '6px', alignItems: 'center' }}>{badges}</div>;
   };
 
   const sortedProviders = [...providers].sort((a, b) => a.id.localeCompare(b.id));
