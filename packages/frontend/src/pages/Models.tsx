@@ -112,7 +112,8 @@ export const Models = () => {
         const updatedTargets = [...(prev.target_groups[0]?.targets ?? [])];
         for (const t of targets) {
           const alreadyExists = updatedTargets.some(
-            (x: any) => x.provider === t.provider && x.model === t.model
+            (x: { provider: string; model: string }) =>
+              x.provider === t.provider && x.model === t.model
           );
           if (!alreadyExists) {
             updatedTargets.push({ ...t, enabled: true });
