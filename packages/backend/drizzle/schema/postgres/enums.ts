@@ -36,4 +36,5 @@ export const quotaCheckerTypeEnum = pgEnum('quota_checker_type', [
   'devpass',
   'wafer',
   'opencode-go',
+  'crof',
 ]);
