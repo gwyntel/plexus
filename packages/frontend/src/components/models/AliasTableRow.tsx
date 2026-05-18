@@ -3,7 +3,6 @@ import { Edit2, Trash2, Clock, Play, Loader2, CheckCircle, XCircle } from 'lucid
 import { CopyButton } from '../ui/CopyButton';
 import { Switch } from '../ui/Switch';
 import { Alias, Provider, Cooldown } from '../../lib/api';
-import { ModelTypeBadge } from './ModelTypeBadge';
 import { formatMsToMinSec } from '@plexus/shared';
 
 interface AliasTableRowProps {
@@ -47,9 +46,11 @@ export const AliasTableRow: React.FC<AliasTableRowProps> = ({
         style={{ fontWeight: 600, paddingLeft: '24px' }}
       >
         <div className="flex items-center gap-2">
-          <div onClick={() => onEdit(alias)} className="flex items-center gap-2 cursor-pointer">
+          <div
+            onClick={() => onEdit(alias)}
+            className="flex items-center gap-2 cursor-pointer whitespace-nowrap"
+          >
             <Edit2 size={12} className="opacity-50" />
-            <ModelTypeBadge type={alias.type} />
             {alias.id}
           </div>
           <CopyButton value={alias.id} size="sm" />
@@ -61,12 +62,33 @@ export const AliasTableRow: React.FC<AliasTableRowProps> = ({
             <Trash2 size={14} />
           </button>
         </div>
-        {alias.metadata && (
-          <div className="pl-5 mt-0.5 text-[10px]">
-            <span className="text-text-muted">Metadata: </span>
-            <span className="text-primary capitalize">{alias.metadata.source}</span>
-          </div>
-        )}
+        <div className="pl-5 mt-0.5 text-[10px] flex items-center gap-2">
+          <span>
+            <span className="text-text-muted">Type: </span>
+            <span
+              className={
+                (
+                  {
+                    embeddings: 'text-success',
+                    transcriptions: 'text-purple-400',
+                    speech: 'text-orange-400',
+                    image: 'text-pink-400',
+                    responses: 'text-cyan-400',
+                    chat: 'text-gray-400',
+                  } as Record<string, string>
+                )[alias.type ?? 'chat'] ?? 'text-gray-400'
+              }
+            >
+              {alias.type ?? 'chat'}
+            </span>
+          </span>
+          {alias.metadata && (
+            <span>
+              <span className="text-text-muted">Metadata: </span>
+              <span className="text-primary capitalize">{alias.metadata.source}</span>
+            </span>
+          )}
+        </div>
         {alias.aliases && alias.aliases.length > 0 && (
           <div className="flex flex-col gap-1 mt-1.5 pl-5">
             {alias.aliases.map((a) => (
