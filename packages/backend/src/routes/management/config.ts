@@ -694,9 +694,7 @@ export async function registerConfigRoutes(
       }
       if (body.stallCooldown !== undefined) {
         if (typeof body.stallCooldown !== 'boolean') {
-          return reply
-            .code(400)
-            .send({ error: 'stallCooldown must be a boolean' });
+          return reply.code(400).send({ error: 'stallCooldown must be a boolean' });
         }
         await configService.setSetting('stall.stallCooldown', body.stallCooldown);
       }

@@ -1255,7 +1255,14 @@ export class ConfigRepository {
     const windowSeconds = await this.getSetting<number>('stall.windowSeconds', 10);
     const gracePeriodSeconds = await this.getSetting<number>('stall.gracePeriodSeconds', 30);
     const stallCooldown = await this.getSetting<boolean>('stall.stallCooldown', false);
-    return { ttfbSeconds, ttfbBytes, minBytesPerSecond, windowSeconds, gracePeriodSeconds, stallCooldown };
+    return {
+      ttfbSeconds,
+      ttfbBytes,
+      minBytesPerSecond,
+      windowSeconds,
+      gracePeriodSeconds,
+      stallCooldown,
+    };
   }
 
   // ─── OAuth Credentials ──────────────────────────────────────────
