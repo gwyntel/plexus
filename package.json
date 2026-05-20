@@ -48,7 +48,8 @@
     "preview:openapi": "bunx @redocly/cli preview-docs docs/openapi/openapi.yaml",
     "sync:openapi": "bun run scripts/sync-openapi.ts",
     "sync:openapi:write": "bun run scripts/sync-openapi.ts --write",
-    "generate-migrations": "bun run scripts/generate-migrations.ts"
+    "generate-migrations": "bun run scripts/generate-migrations.ts",
+    "deploy:staging": "bun run scripts/deploy-staging.ts"
   },
   "type": "module",
   "workspaces": [
