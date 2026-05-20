@@ -80,3 +80,4 @@ plexus
 
 # Profiling output
 .prof/
+.grepai/
