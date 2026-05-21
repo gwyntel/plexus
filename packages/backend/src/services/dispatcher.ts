@@ -511,6 +511,53 @@ export class Dispatcher {
           } catch (oauthError: any) {
             if (signal?.aborted) throw this.buildCancelledError(signal);
             lastError = oauthError;
+
+            // Handle TTFB stall errors with failover support
+            const isStallError = (oauthError as any).isStallError === true;
+            if (isStallError) {
+              const canRetryStall = failoverEnabled && i < targets.length - 1;
+              this.appendFailureAttempt(
+                retryHistory,
+                route,
+                oauthError,
+                targetApiType,
+                canRetryStall
+              );
+
+              if (canRetryStall) {
+                await this.recordAttemptMetric(route, currentRequest.requestId, false, {
+                  isVisionFallthrough: (currentRequest as any)._hasVisionFallthrough,
+                  isDescriptorRequest: (currentRequest as any)._isVisionDescriptorRequest,
+                  visionFallthroughModel: (currentRequest as any)._visionFallthroughModel,
+                });
+                CooldownManager.getInstance().markProviderStallFailure(
+                  route.provider,
+                  route.model,
+                  this.formatFailureReason(oauthError)
+                );
+                this.saveIntermediateError(
+                  currentRequest.requestId,
+                  targetApiType || 'chat',
+                  oauthError
+                );
+                logger.info(
+                  `TTFB stall: OAuth request timed out for ${route.provider}/${route.model}, retrying`
+                );
+                doRelease();
+                continue;
+              }
+
+              doRelease();
+
+              // Mark stall failure for cooldown tracking even on the last target
+              CooldownManager.getInstance().markProviderStallFailure(
+                route.provider,
+                route.model,
+                this.formatFailureReason(oauthError)
+              );
+              throw oauthError;
+            }
+
             const canRetry =
               failoverEnabled && i < targets.length - 1 && this.isRetryableOAuthError(oauthError);
 
@@ -1737,7 +1784,8 @@ export class Dispatcher {
   }
 
   private async probeOAuthStreamStart(
-    stream: ReadableStream<any>
+    stream: ReadableStream<any>,
+    stallConfig?: StallConfig | null
   ): Promise<
     { ok: true; stream: ReadableStream<any> } | { ok: false; error: Error; streamStarted: boolean }
   > {
@@ -1762,36 +1810,132 @@ export class Dispatcher {
 
     const reader = stream.getReader();
     const buffered: any[] = [];
+    const ttfbMs = stallConfig?.ttfbMs;
 
     try {
-      while (true) {
-        const { value, done } = await reader.read();
+      if (ttfbMs != null) {
+        // TTFB deadline mode: race each read against remaining time from
+        // a single absolute deadline. The deadline never resets after each
+        // bookkeeping event — a slow trickle of bookkeeping events cannot
+        // avoid timeout. TTFB for OAuth is "time to first non-bookkeeping event".
+        const deadline = Date.now() + ttfbMs;
+        const stallReason = new DOMException(
+          `Stream stalled: TTFB timeout — no response within ${ttfbMs}ms`,
+          'TimeoutError'
+        );
 
-        if (done) {
-          // Stream closed — quota exhausted (no events) or provider gave up.
-          reader.releaseLock();
-          return {
-            ok: false,
-            error: new Error('OAuth provider returned empty stream (quota exhausted)'),
-            streamStarted: false,
-          };
+        while (true) {
+          const remaining = deadline - Date.now();
+          if (remaining <= 0) {
+            try {
+              await reader.cancel(stallReason);
+            } catch {}
+            try {
+              reader.releaseLock();
+            } catch {}
+            return {
+              ok: false,
+              error: new Error(stallReason.message),
+              streamStarted: false,
+            };
+          }
+
+          let readTimerId: ReturnType<typeof setTimeout> | undefined;
+          try {
+            const readPromise = reader.read();
+            const timeoutPromise = new Promise<never>((_, reject) => {
+              readTimerId = setTimeout(() => reject(stallReason), remaining);
+              readTimerId.unref?.();
+            });
+
+            const { value, done } = await Promise.race([readPromise, timeoutPromise]);
+
+            if (done) {
+              try {
+                await reader.cancel();
+              } catch {}
+              try {
+                reader.releaseLock();
+              } catch {}
+              return {
+                ok: false,
+                error: new Error('OAuth provider returned empty stream (quota exhausted)'),
+                streamStarted: false,
+              };
+            }
+
+            if (value?.type === 'error' || value?.reason === 'error') {
+              try {
+                await reader.cancel();
+              } catch {}
+              try {
+                reader.releaseLock();
+              } catch {}
+              return {
+                ok: false,
+                error: this.buildOAuthStreamEventError(value),
+                streamStarted: false,
+              };
+            }
+
+            buffered.push(value);
+
+            // If this event is not pure bookkeeping, the stream is healthy.
+            if (!BOOKKEEPING_TYPES.has(value?.type)) {
+              break;
+            }
+          } catch (err: any) {
+            if (err?.name === 'TimeoutError' || err?.message?.includes('stalled')) {
+              try {
+                await reader.cancel(err);
+              } catch {}
+              try {
+                reader.releaseLock();
+              } catch {}
+              return {
+                ok: false,
+                error: err instanceof Error ? err : new Error(String(err)),
+                streamStarted: false,
+              };
+            }
+            throw err;
+          } finally {
+            if (readTimerId !== undefined) {
+              clearTimeout(readTimerId);
+            }
+          }
         }
+      } else {
+        // No TTFB deadline — use existing indefinite read loop
+        while (true) {
+          const { value, done } = await reader.read();
 
-        if (value?.type === 'error' || value?.reason === 'error') {
-          reader.releaseLock();
-          return {
-            ok: false,
-            error: this.buildOAuthStreamEventError(value),
-            streamStarted: false,
-          };
-        }
+          if (done) {
+            // Stream closed — quota exhausted (no events) or provider gave up.
+            reader.releaseLock();
+            return {
+              ok: false,
+              error: new Error('OAuth provider returned empty stream (quota exhausted)'),
+              streamStarted: false,
+            };
+          }
 
-        buffered.push(value);
+          if (value?.type === 'error' || value?.reason === 'error') {
+            reader.releaseLock();
+            return {
+              ok: false,
+              error: this.buildOAuthStreamEventError(value),
+              streamStarted: false,
+            };
+          }
 
-        // If this event is not pure bookkeeping, the stream is healthy.
-        // Replay all buffered events then continue from the reader.
-        if (!BOOKKEEPING_TYPES.has(value?.type)) {
-          break;
+          buffered.push(value);
+
+          // If this event is not pure bookkeeping, the stream is healthy.
+          // Replay all buffered events then continue from the reader.
+          if (!BOOKKEEPING_TYPES.has(value?.type)) {
+            break;
+          }
         }
       }
 
@@ -1885,7 +2029,7 @@ export class Dispatcher {
    *
    * This is needed because pi-ai retries HTTP 429s internally with exponential
    * backoff (delays of 1 s, 2 s, 4 s …), so the final error event may arrive
-   * many seconds after the 100 ms probe timeout has already declared the stream
+   * many seconds after the probe has already declared the stream
    * healthy.  Without this wrapper the cooldown is never triggered and the
    * exhausted provider keeps receiving traffic.
    */
@@ -2067,48 +2211,181 @@ export class Dispatcher {
         oauthContext.systemPrompt =
           this.resolveOAuthInstructions(request, oauthProvider) || oauthContext.systemPrompt;
       }
-      const result = await transformer.executeRequest(
-        oauthContext,
-        oauthProvider,
-        route.model,
-        !!request.stream,
-        oauthOptions,
-        authConfig,
-        signal
-      );
 
-      if (request.stream) {
-        const rawStream = this.normalizeOAuthStream(result);
-        const streamProbe = await this.probeOAuthStreamStart(rawStream);
+      // TTFB stall detection for streaming OAuth requests.
+      // The stallAbortController is separate from the client signal — aborting
+      // it means the provider is too slow to start responding, not that the
+      // client disconnected. We intercept stall aborts BEFORE wrapOAuthError
+      // can swallow them — the OAuth transformer converts AbortError
+      // to generic 'Upstream timeout', losing the stall message).
+      const originalSignal = signal;
+      let requestSignal = signal;
+      let stallAbortController: AbortController | undefined;
+      let ttfbTimerId: ReturnType<typeof setTimeout> | undefined;
+      let raceTimerId: ReturnType<typeof setTimeout> | undefined;
+      const dispatchStartTime = Date.now();
 
-        if (!streamProbe.ok) {
-          throw streamProbe.error;
-        }
+      if (request.stream && effectiveStallConfig?.ttfbMs != null) {
+        stallAbortController = new AbortController();
+        requestSignal = originalSignal
+          ? AbortSignal.any([originalSignal, stallAbortController.signal])
+          : stallAbortController.signal;
 
-        logger.debug('OAuth: Normalized stream result', this.describeStreamResult(result));
-
-        // Wrap the probed stream with an error monitor so that quota/error events
-        // arriving AFTER the 100ms probe timeout still trigger a cooldown.  This
-        // is necessary because pi-ai retries HTTP 429s with exponential backoff
-        // (1 s, 2 s, 4 s) before emitting the final error event, which takes far
-        // longer than the probe's 100 ms window.
-        const monitoredStream = this.monitorOAuthStreamForErrors(streamProbe.stream, route);
-
-        const streamResponse: UnifiedChatResponse = {
-          id: 'stream-' + Date.now(),
-          model: request.model,
-          content: null,
-          stream: monitoredStream,
-          bypassTransformation: false,
-        };
-
-        this.enrichResponseWithMetadata(streamResponse, route, 'oauth');
-        return streamResponse;
+        const ttfbMs = effectiveStallConfig.ttfbMs!;
+        ttfbTimerId = setTimeout(() => {
+          stallAbortController!.abort(
+            new DOMException(
+              `Stream stalled: TTFB timeout — no response within ${ttfbMs}ms`,
+              'TimeoutError'
+            )
+          );
+        }, ttfbMs);
+        ttfbTimerId.unref?.();
       }
 
-      const unified = await transformer.transformResponse(result);
-      this.enrichResponseWithMetadata(unified, route, 'oauth');
-      return unified;
+      try {
+        // Race executeRequest against the TTFB deadline. The abort signal
+        // is passed for cooperative cancellation, but if the upstream
+        // doesn't observe it, the Promise.race ensures we don't hang.
+        let executePromise: Promise<any>;
+        if (request.stream && stallAbortController && effectiveStallConfig?.ttfbMs != null) {
+          const deadlineMs = effectiveStallConfig.ttfbMs!;
+          executePromise = Promise.race([
+            transformer.executeRequest(
+              oauthContext,
+              oauthProvider,
+              route.model,
+              !!request.stream,
+              oauthOptions,
+              authConfig,
+              requestSignal
+            ),
+            new Promise<never>((_, reject) => {
+              // Redundant with the timer above, but guarantees we reject
+              // even if the upstream ignores the abort signal.
+              raceTimerId = setTimeout(
+                () => {
+                  reject(
+                    new DOMException(
+                      `Stream stalled: TTFB timeout — no response within ${deadlineMs}ms`,
+                      'TimeoutError'
+                    )
+                  );
+                },
+                deadlineMs - (Date.now() - dispatchStartTime)
+              );
+            }),
+          ]);
+        } else {
+          executePromise = transformer.executeRequest(
+            oauthContext,
+            oauthProvider,
+            route.model,
+            !!request.stream,
+            oauthOptions,
+            authConfig,
+            requestSignal
+          );
+        }
+
+        const result = await executePromise;
+
+        // executeRequest succeeded — clear stall timer
+        if (ttfbTimerId !== undefined) {
+          clearTimeout(ttfbTimerId);
+          ttfbTimerId = undefined;
+        }
+        if (raceTimerId !== undefined) {
+          clearTimeout(raceTimerId);
+          raceTimerId = undefined;
+        }
+
+        // Client disconnect check after executeRequest
+        if (originalSignal?.aborted) throw this.buildCancelledError(originalSignal);
+
+        if (request.stream) {
+          // Compute remaining TTFB for the probe using absolute deadline
+          let probeStallConfig: StallConfig | null = effectiveStallConfig ?? null;
+          if (effectiveStallConfig?.ttfbMs != null) {
+            const deadline = dispatchStartTime + effectiveStallConfig.ttfbMs;
+            const remainingMs = deadline - Date.now();
+            if (remainingMs <= 0) {
+              // Deadline already exceeded after executeRequest — cancel the
+              // returned stream before failing, otherwise the upstream
+              // connection leaks while failover proceeds.
+              try {
+                const rawStream = this.normalizeOAuthStream(result);
+                if (rawStream && typeof rawStream.cancel === 'function') {
+                  await rawStream.cancel();
+                }
+              } catch {}
+              const err = new Error(
+                `Stream stalled: TTFB timeout — no response within ${effectiveStallConfig.ttfbMs}ms`
+              ) as any;
+              err.isStallError = true;
+              throw err;
+            }
+            probeStallConfig = { ...effectiveStallConfig, ttfbMs: remainingMs };
+          }
+
+          const rawStream = this.normalizeOAuthStream(result);
+          const streamProbe = await this.probeOAuthStreamStart(rawStream, probeStallConfig);
+
+          if (!streamProbe.ok) {
+            throw streamProbe.error;
+          }
+
+          logger.debug('OAuth: Normalized stream result', this.describeStreamResult(result));
+
+          // Wrap the probed stream with an error monitor so that quota/error events
+          // arriving AFTER the 100ms probe timeout still trigger a cooldown.  This
+          // is necessary because pi-ai retries HTTP 429s with exponential backoff
+          // (1 s, 2 s, 4 s) before emitting the final error event, which takes far
+          // longer than the probe's window.
+          const monitoredStream = this.monitorOAuthStreamForErrors(streamProbe.stream, route);
+
+          const streamResponse: UnifiedChatResponse = {
+            id: 'stream-' + Date.now(),
+            model: request.model,
+            content: null,
+            stream: monitoredStream,
+            bypassTransformation: false,
+          };
+
+          this.enrichResponseWithMetadata(streamResponse, route, 'oauth');
+          return streamResponse;
+        }
+
+        const unified = await transformer.transformResponse(result);
+        this.enrichResponseWithMetadata(unified, route, 'oauth');
+        return unified;
+      } catch (error: any) {
+        // ALWAYS clear timer on any error
+        if (ttfbTimerId !== undefined) {
+          clearTimeout(ttfbTimerId);
+          ttfbTimerId = undefined;
+        }
+        if (raceTimerId !== undefined) {
+          clearTimeout(raceTimerId);
+          raceTimerId = undefined;
+        }
+
+        // Client disconnect takes priority over stall detection
+        if (originalSignal?.aborted) throw this.buildCancelledError(originalSignal);
+
+        // TTFB stall abort — re-throw with correct stall message BEFORE
+        // wrapOAuthError can swallow it
+        if (stallAbortController?.signal.aborted) {
+          const stallError = new Error(
+            `Stream stalled: TTFB timeout — no response within ${effectiveStallConfig?.ttfbMs}ms`
+          );
+          (stallError as any).isStallError = true;
+          throw stallError;
+        }
+
+        // Non-stall error — let wrapOAuthError handle it
+        throw error;
+      }
     } catch (error: any) {
       throw this.wrapOAuthError(error, route, targetApiType);
     }
