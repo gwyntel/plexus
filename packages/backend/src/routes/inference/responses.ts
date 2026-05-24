@@ -178,7 +178,7 @@ export async function registerResponsesRoute(
         unifiedRequest,
         dispatchSignal,
         addTimeoutSource,
-        stallDetectionResult?.addStallConfig
+        stallDetectionResult.addStallConfig
       );
 
       // Emit 'updated' event with routing decision details
