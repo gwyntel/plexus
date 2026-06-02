@@ -28,7 +28,9 @@ export default defineChecker({
 
     if (!response.ok) {
       const body = await response.text().catch(() => '');
-      throw new Error(`HTTP ${response.status}: ${response.statusText}${body ? ` - ${body.slice(0, 200)}` : ''}`);
+      throw new Error(
+        `HTTP ${response.status}: ${response.statusText}${body ? ` - ${body.slice(0, 200)}` : ''}`
+      );
     }
 
     const data: HyperCreditsResponse = await response.json();

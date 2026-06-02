@@ -886,6 +886,7 @@ export interface KeyConfig {
   allowedProviders?: string[];
   excludedModels?: string[];
   excludedProviders?: string[];
+  allowedIps?: string[];
 }
 
 export type UsageSortField =
@@ -1582,6 +1583,7 @@ export const api = {
           allowedProviders?: string[];
           excludedModels?: string[];
           excludedProviders?: string[];
+          allowedIps?: string[];
         }
       >;
 
@@ -1594,6 +1596,7 @@ export const api = {
         allowedProviders: val.allowedProviders,
         excludedModels: val.excludedModels,
         excludedProviders: val.excludedProviders,
+        allowedIps: val.allowedIps,
       }));
     } catch (e) {
       console.error('API Error getKeys', e);
@@ -1615,12 +1618,15 @@ export const api = {
           allowedProviders: keyConfig.allowedProviders ?? [],
           excludedModels: keyConfig.excludedModels ?? [],
           excludedProviders: keyConfig.excludedProviders ?? [],
+          allowedIps: keyConfig.allowedIps ?? [],
         }),
       }
     );
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
-      throw new Error(err.error || 'Failed to save key');
+      const detail =
+        Array.isArray(err.details) && err.details[0]?.message ? `: ${err.details[0].message}` : '';
+      throw new Error(`${err.error || 'Failed to save key'}${detail}`);
     }
 
     // Delete old key only after new one is saved successfully
@@ -3140,6 +3146,31 @@ export const api = {
       body: JSON.stringify(updates),
     });
     if (!res.ok) throw new Error('Failed to update cooldown policy');
+    return res.json();
+  },
+
+  // ─── Trusted Proxies ───────────────────────────────────────────────
+
+  /** Fetch the trusted-proxy allowlist (IPs/CIDRs whose forwarding headers are honored). */
+  getTrustedProxies: async (): Promise<{ trustedProxies: string[] }> => {
+    const res = await fetchWithAuth(`${API_BASE}/v0/management/config/trusted-proxies`);
+    if (!res.ok) throw new Error('Failed to fetch trusted proxies');
+    return res.json();
+  },
+
+  /** Replace the trusted-proxy allowlist. */
+  patchTrustedProxies: async (trustedProxies: string[]): Promise<{ trustedProxies: string[] }> => {
+    const res = await fetchWithAuth(`${API_BASE}/v0/management/config/trusted-proxies`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ trustedProxies }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      const detail =
+        Array.isArray(err.details) && err.details[0]?.message ? `: ${err.details[0].message}` : '';
+      throw new Error(`${err.error || 'Failed to update trusted proxies'}${detail}`);
+    }
     return res.json();
   },
 
