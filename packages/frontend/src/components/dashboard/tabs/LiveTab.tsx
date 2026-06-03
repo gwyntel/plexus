@@ -356,10 +356,6 @@ const aggregateByEntity = (
   requests.forEach((request) => {
     const key = entityType === 'provider' ? getProviderLabel(request) : getModelLabel(request);
 
-    if (entityType === 'provider' && key === 'Failed Request') {
-      return;
-    }
-
     const existing = grouped.get(key) || {
       requests: 0,
       errors: 0,
@@ -1087,6 +1083,12 @@ export const LiveTab: React.FC<LiveTabProps> = ({
     );
   }, [liveRequests, streamFilter]);
 
+  /** Requests that resolved to a real provider (excludes synthetic labels like "Failed Request") */
+  const providerRequests = useMemo(
+    () => liveRequests.filter((r) => getProviderLabel(r) !== 'Failed Request'),
+    [liveRequests]
+  );
+
   /** Aggregate summary of all liveRequests: counts, token totals, cost, latency sums */
   const summary = useMemo(() => {
     return liveRequests.reduce(
@@ -1413,11 +1415,8 @@ export const LiveTab: React.FC<LiveTabProps> = ({
       { requests: number; success: number; totalLatency: number; totalCost: number }
     >();
 
-    for (const request of liveRequests) {
+    for (const request of providerRequests) {
       const provider = getProviderLabel(request);
-      if (provider === 'Failed Request') {
-        continue;
-      }
       const row = providers.get(provider) || {
         requests: 0,
         success: 0,
@@ -1444,7 +1443,7 @@ export const LiveTab: React.FC<LiveTabProps> = ({
       }))
       .sort((a, b) => b.requests - a.requests)
       .slice(0, 6);
-  }, [liveRequests]);
+  }, [providerRequests]);
 
   /**
    * Computes minute-over-minute request rate deltas for the velocity chart.
@@ -1468,11 +1467,8 @@ export const LiveTab: React.FC<LiveTabProps> = ({
   /** Top 8 providers by request count with success rate -- for the provider pulse bar chart */
   const providerPulseRows = useMemo(() => {
     const rows = new Map<string, { requests: number; success: number }>();
-    for (const request of liveRequests) {
+    for (const request of providerRequests) {
       const provider = getProviderLabel(request);
-      if (provider === 'Failed Request') {
-        continue;
-      }
       const row = rows.get(provider) || { requests: 0, success: 0 };
       row.requests += 1;
       if ((request.responseStatus || '').toLowerCase() === 'success') {
@@ -1489,7 +1485,7 @@ export const LiveTab: React.FC<LiveTabProps> = ({
       }))
       .sort((a, b) => b.requests - a.requests)
       .slice(0, 8);
-  }, [liveRequests]);
+  }, [providerRequests]);
 
   /** Top 8 models by request count with success rate -- for the model pulse bar chart */
   const modelPulseRows = useMemo(() => {
@@ -1531,7 +1527,10 @@ export const LiveTab: React.FC<LiveTabProps> = ({
   }, [cooldowns]);
 
   /** Aggregated stats for the top 5 providers -- used by the "stats" card */
-  const providerStats = useMemo(() => aggregateByEntity(liveRequests, 'provider'), [liveRequests]);
+  const providerStats = useMemo(
+    () => aggregateByEntity(providerRequests, 'provider'),
+    [providerRequests]
+  );
 
   /** Aggregated stats for the top 5 models -- used by the "stats" card */
   const modelStats = useMemo(() => aggregateByEntity(liveRequests, 'model'), [liveRequests]);
