@@ -1,12 +1,17 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   deriveModelsUrl,
+  discoverProviderModels,
   normalizeModelsResponse,
   validateUrlSafety,
 } from '../provider-model-discovery';
 import type { ProviderConfig } from '../../config';
 
 describe('provider model discovery', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it('derives OpenAI-compatible /models URLs from chat completion URLs', () => {
     const provider: ProviderConfig = {
       api_base_url: 'https://api.example.com/v1/chat/completions',
@@ -51,5 +56,33 @@ describe('provider model discovery', () => {
       valid: false,
       error: 'Cannot fetch from localhost',
     });
+  });
+
+  it('does not forward provider API keys to the public Ollama catalog', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ models: ['llama3.2'] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const provider: ProviderConfig = {
+      api_base_url: { ollama: 'https://ollama.example.com/api' },
+      api_key: 'secret-local-ollama-key',
+      disable_cooldown: false,
+      stall_cooldown: false,
+      estimateTokens: false,
+      useClaudeMasking: false,
+    };
+
+    await discoverProviderModels(provider);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://ollama.com/api/tags',
+      expect.objectContaining({
+        headers: { Accept: 'application/json' },
+      })
+    );
   });
 });

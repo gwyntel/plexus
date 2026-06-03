@@ -155,7 +155,8 @@ export async function discoverProviderModels(provider: ProviderConfig): Promise<
   const modelsUrl = deriveModelsUrl(provider);
   if (!modelsUrl) return [];
 
-  const result = await fetchModelsFromUrl(modelsUrl, provider.api_key);
+  const apiKey = modelsUrl === 'https://ollama.com/api/tags' ? undefined : provider.api_key;
+  const result = await fetchModelsFromUrl(modelsUrl, apiKey);
   return result.data;
 }
 
