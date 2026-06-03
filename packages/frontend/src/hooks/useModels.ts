@@ -193,6 +193,7 @@ export const useModels = () => {
   const [selectedImportAliases, setSelectedImportAliases] = useState<Map<string, string>>(
     new Map()
   );
+  const [hasSuppressedImportModels, setHasSuppressedImportModels] = useState(false);
   const [isImporting, setIsImporting] = useState(false);
 
   const loadData = useCallback(async () => {
@@ -379,6 +380,7 @@ export const useModels = () => {
   const handleOpenImport = useCallback(() => {
     const covered = new Set<string>();
     const suppressedImports = readSuppressedImportModels();
+    setHasSuppressedImportModels(suppressedImports.size > 0);
     aliases.forEach((alias) => {
       alias.target_groups.forEach((g) => {
         g.targets.forEach((t) => {
@@ -442,6 +444,7 @@ export const useModels = () => {
     const nextSuppressed = readSuppressedImportModels();
     nextSuppressed.add(getSuppressedImportKey(modelId));
     saveSuppressedImportModels(nextSuppressed);
+    setHasSuppressedImportModels(true);
 
     setOrphanGroups((prev) => prev.filter((group) => group.modelId !== modelId));
     setSelectedImports((prev) => {
@@ -573,6 +576,7 @@ export const useModels = () => {
     setSelectedImportModels,
     selectedImportAliases,
     setSelectedImportAliases,
+    hasSuppressedImportModels,
     isImporting,
     handleOpenImport,
     handleSuppressImportModel,

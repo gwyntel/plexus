@@ -14,6 +14,7 @@ interface Props {
   setSelectedAliases: React.Dispatch<React.SetStateAction<Map<string, string>>>;
   onSuppress: (modelId: string) => void;
   onUnsuppressAll: () => void;
+  hasSuppressedModels: boolean;
   onImport: () => Promise<boolean>;
   isImporting: boolean;
 }
@@ -30,6 +31,7 @@ export function ImportModelsModal({
   setSelectedAliases,
   onSuppress,
   onUnsuppressAll,
+  hasSuppressedModels,
   onImport,
   isImporting,
 }: Props) {
@@ -61,7 +63,12 @@ export function ImportModelsModal({
     >
       <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
         <div className="flex justify-end">
-          <Button variant="ghost" size="sm" onClick={onUnsuppressAll}>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onUnsuppressAll}
+            disabled={!hasSuppressedModels}
+          >
             Unsuppress all
           </Button>
         </div>
