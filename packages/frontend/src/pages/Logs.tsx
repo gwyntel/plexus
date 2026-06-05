@@ -69,6 +69,7 @@ import {
   Wifi,
   WifiOff,
   Loader,
+  Pi,
 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { useNavigate, useSearchParams } from 'react-router-dom';
@@ -204,6 +205,14 @@ export const Logs = () => {
     'openai-completions': chatLogo,
     'anthropic-messages': messagesLogo,
   };
+
+  // Outgoing API types produced exclusively by the inference-v2 (pi-ai native) path
+  const INFERENCE_V2_OUTGOING_TYPES = new Set([
+    'google-generative-ai',
+    'openai-completions',
+    'anthropic-messages',
+    'openai-responses',
+  ]);
 
   // Delete Modal State
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
@@ -1100,7 +1109,7 @@ export const Logs = () => {
                       </td>
                       <td
                         className="px-2 py-1.5 text-left border-b border-border-glass text-text align-middle whitespace-nowrap"
-                        title={`Incoming: ${log.incomingApiType || '?'} → Outgoing: ${log.outgoingApiType || '?'} • ${log.isStreamed ? 'Streamed' : 'Non-streamed'} • ${log.isPassthrough ? 'Direct/Passthrough' : 'Translated'}`}
+                        title={`Incoming: ${log.incomingApiType || '?'} → Outgoing: ${log.outgoingApiType || '?'} • ${log.isStreamed ? 'Streamed' : 'Non-streamed'} • ${log.outgoingApiType && INFERENCE_V2_OUTGOING_TYPES.has(log.outgoingApiType) ? 'pi-ai native' : log.isPassthrough ? 'Direct/Passthrough' : 'Translated'}`}
                         style={{ cursor: 'help' }}
                       >
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
@@ -1181,7 +1190,10 @@ export const Logs = () => {
                             <div
                               style={{ width: '16px', display: 'flex', justifyContent: 'center' }}
                             >
-                              {log.isPassthrough ? (
+                              {log.outgoingApiType &&
+                              INFERENCE_V2_OUTGOING_TYPES.has(log.outgoingApiType) ? (
+                                <Pi size={12} className="text-emerald-400" />
+                              ) : log.isPassthrough ? (
                                 <MoveHorizontal size={12} className="text-yellow-500" />
                               ) : (
                                 <Languages size={12} className="text-purple-400" />
