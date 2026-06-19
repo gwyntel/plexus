@@ -67,6 +67,34 @@ describe('GeminiEmbeddingsTransformer', () => {
       expect(result.requests[0].content.parts[0].text).toBe('A');
     });
 
+    test('should pass through Gemini-specific options for every batch item', async () => {
+      const request = {
+        model: 'gemini-embedding-2',
+        input: ['A', 'B'],
+        originalBody: {
+          taskType: 'RETRIEVAL_QUERY',
+          title: 'Batch Title',
+          outputDimensionality: 128,
+        },
+        dimensions: 256,
+      };
+      const result = await transformer.transformRequest(request as any);
+
+      expect(result.requests).toHaveLength(2);
+      expect(result.requests[0]).toMatchObject({
+        model: 'models/gemini-embedding-2',
+        taskType: 'RETRIEVAL_QUERY',
+        title: 'Batch Title',
+        outputDimensionality: 128,
+      });
+      expect(result.requests[1]).toMatchObject({
+        model: 'models/gemini-embedding-2',
+        taskType: 'RETRIEVAL_QUERY',
+        title: 'Batch Title',
+        outputDimensionality: 128,
+      });
+    });
+
     test('should pass through taskType and title from originalBody', async () => {
       const request = {
         model: 'gemini-embedding-2',
@@ -88,6 +116,27 @@ describe('GeminiEmbeddingsTransformer', () => {
       };
       const result = await transformer.transformRequest(request as any);
       expect(result.outputDimensionality).toBe(256);
+    });
+
+    test('should prefer native outputDimensionality from originalBody when present', async () => {
+      const request = {
+        model: 'gemini-embedding-2',
+        input: 'Hello',
+        originalBody: { outputDimensionality: 128 },
+        dimensions: 256,
+      };
+      const result = await transformer.transformRequest(request as any);
+      expect(result.outputDimensionality).toBe(128);
+    });
+
+    test('should reject empty input arrays', async () => {
+      await expect(
+        transformer.transformRequest({
+          model: 'gemini-embedding-2',
+          input: [],
+          originalBody: {},
+        } as any)
+      ).rejects.toThrow('Gemini embeddings input array must contain at least one item');
     });
   });
 

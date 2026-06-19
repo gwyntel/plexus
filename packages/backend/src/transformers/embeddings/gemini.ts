@@ -24,26 +24,18 @@ export class GeminiEmbeddingsTransformer implements EmbeddingsTransformer {
 
     if (isBatch) {
       return {
-        requests: (input as string[]).map((text) => ({
-          model,
-          content: { parts: [{ text }] },
-        })),
+        requests: (input as string[]).map((text) =>
+          GeminiEmbeddingsTransformer.buildRequestPayload(model, text, request)
+        ),
       };
     }
 
     // Single input (string or single-element array)
     const text = Array.isArray(input) ? input[0] : input;
-    const payload: any = {
-      model,
-      content: { parts: [{ text }] },
-    };
-
-    // Pass through optional Gemini-specific fields from originalBody
-    if (request.originalBody?.taskType) payload.taskType = request.originalBody.taskType;
-    if (request.originalBody?.title) payload.title = request.originalBody.title;
-    if (request.dimensions) payload.outputDimensionality = request.dimensions;
-
-    return payload;
+    if (text === undefined) {
+      throw new Error('Gemini embeddings input array must contain at least one item');
+    }
+    return GeminiEmbeddingsTransformer.buildRequestPayload(model, text, request);
   }
 
   async transformResponse(
@@ -108,5 +100,30 @@ export class GeminiEmbeddingsTransformer implements EmbeddingsTransformer {
       return `models/${model}`;
     }
     return model;
+  }
+
+  private static buildRequestPayload(
+    model: string,
+    text: string,
+    request: UnifiedEmbeddingsRequest
+  ): Record<string, any> {
+    const payload: Record<string, any> = {
+      model,
+      content: { parts: [{ text }] },
+    };
+
+    if (request.originalBody?.taskType !== undefined) {
+      payload.taskType = request.originalBody.taskType;
+    }
+    if (request.originalBody?.title !== undefined) {
+      payload.title = request.originalBody.title;
+    }
+
+    const outputDimensionality = request.originalBody?.outputDimensionality ?? request.dimensions;
+    if (outputDimensionality !== undefined) {
+      payload.outputDimensionality = outputDimensionality;
+    }
+
+    return payload;
   }
 }
