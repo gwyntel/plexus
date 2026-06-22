@@ -305,12 +305,21 @@ const PiAiModelCostSchema = z.object({
  * Custom pi-ai model definition. Keyed by an arbitrary model id that Plexus
  * provider-models reference via `pi_ai_model_id`.
  *
+ * A model is scoped to a single custom provider via `provider` (the custom
+ * provider id). Resolution only matches a custom model when its `provider`
+ * equals the `pi_ai_provider` of the referencing Plexus provider.
+ *
  * Two modes (a definition may use one or both — `inherits` first, then the
  * sibling fields deep-merge as overrides):
  *   - `inherits`: clone a registry model `{ provider, model_id }` as the base.
  *   - standalone: provide `api` + the model fields directly.
  */
 export const PiAiCustomModelSchema = z.object({
+  /**
+   * The custom pi-ai provider id this model belongs to. The model only
+   * resolves for Plexus providers whose `pi_ai_provider` equals this id.
+   */
+  provider: z.string().min(1),
   /** Clone this registry model as the base, then deep-merge the fields below. */
   inherits: z
     .object({

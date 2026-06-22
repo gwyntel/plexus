@@ -65,6 +65,7 @@ describe('resolvePiAiModel', () => {
       configWith({
         models: {
           'gpt-5.6': {
+            provider: 'openai',
             inherits: { provider: 'openai', model_id: 'gpt-5.5' },
             overrides: undefined,
             contextWindow: 500000,
@@ -95,7 +96,9 @@ describe('resolvePiAiModel', () => {
 
     it('returns null when the inheritance base is missing', () => {
       configWith({
-        models: { orphan: { inherits: { provider: 'openai', model_id: 'ghost' } } },
+        models: {
+          orphan: { provider: 'openai', inherits: { provider: 'openai', model_id: 'ghost' } },
+        },
       });
       expect(resolvePiAiModel('openai', 'orphan')).toBeNull();
     });
@@ -106,6 +109,7 @@ describe('resolvePiAiModel', () => {
       configWith({
         models: {
           'fully-custom': {
+            provider: 'niche',
             api: 'openai-completions',
             contextWindow: 32000,
             maxTokens: 8192,
@@ -160,12 +164,60 @@ describe('resolvePiAiModel', () => {
       providers: {
         'niche-host': { api: 'anthropic-messages', compat: { supportsTemperature: false } },
       },
-      models: { special: { api: 'openai-completions', contextWindow: 1000, maxTokens: 100 } },
+      models: {
+        special: {
+          provider: 'niche-host',
+          api: 'openai-completions',
+          contextWindow: 1000,
+          maxTokens: 100,
+        },
+      },
     });
     const m = resolvePiAiModel('niche-host', 'special')!;
     // custom model resolved first (api openai-completions), then provider api override applies
     expect(m.api).toBe('anthropic-messages');
     expect(m.compat).toMatchObject({ supportsTemperature: false });
     expect(m.contextWindow).toBe(1000);
+  });
+
+  describe('provider-scoped custom model', () => {
+    beforeEach(() =>
+      configWith({
+        providers: {
+          'niche-host': { api: 'openai-completions' },
+          'other-host': { api: 'openai-responses' },
+        },
+        models: {
+          scoped: {
+            provider: 'niche-host',
+            api: 'openai-completions',
+            contextWindow: 8000,
+            maxTokens: 1024,
+          },
+        },
+      })
+    );
+
+    it('resolves under its declared provider', () => {
+      const m = resolvePiAiModel('niche-host', 'scoped')!;
+      expect(m).not.toBeNull();
+      expect(m.api).toBe('openai-completions');
+      expect(m.contextWindow).toBe(8000);
+      expect(m.provider).toBe('niche-host');
+    });
+
+    it('does NOT resolve under a different provider (scoped mismatch falls through)', () => {
+      // other-host has a custom provider spec, so resolution falls to the
+      // custom-provider path (skeleton), NOT the niche-host-scoped model.
+      const m = resolvePiAiModel('other-host', 'scoped')!;
+      expect(m).not.toBeNull();
+      // skeleton built from other-host's api, not the scoped model's fields
+      expect(m.api).toBe('openai-responses');
+      expect(m.contextWindow).toBe(0);
+    });
+
+    it('does not resolve under a provider with no custom spec and no registry model', () => {
+      expect(resolvePiAiModel('unknown-host', 'scoped')).toBeNull();
+    });
   });
 });

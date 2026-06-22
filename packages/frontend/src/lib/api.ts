@@ -472,6 +472,8 @@ export interface PiAiCustomProviderDef {
 
 /** Custom / inherited pi-ai model definition (inference-v2 registry). */
 export interface PiAiCustomModelDef {
+  /** Custom pi-ai provider id this model belongs to (provider-scoped, required). */
+  provider: string;
   inherits?: { provider: string; model_id: string };
   api?: PiAiApi;
   name?: string;
@@ -2715,12 +2717,14 @@ export const api = {
   getPiModels: async (
     provider: string,
     q?: string
-  ): Promise<Array<{ id: string; name: string; api: string }>> => {
+  ): Promise<Array<{ id: string; name: string; api: string; custom: boolean }>> => {
     const params = new URLSearchParams({ provider });
     if (q) params.set('q', q);
     const res = await fetchWithAuth(`${API_BASE}/v0/management/pi/models?${params}`);
     if (!res.ok) throw new Error('Failed to fetch pi models');
-    const json = (await res.json()) as { data: Array<{ id: string; name: string; api: string }> };
+    const json = (await res.json()) as {
+      data: Array<{ id: string; name: string; api: string; custom: boolean }>;
+    };
     return json.data;
   },
 
@@ -2774,6 +2778,24 @@ export const api = {
       { method: 'DELETE' }
     );
     if (!res.ok) throw new Error('Failed to delete custom model');
+  },
+
+  /**
+   * Fetch a pi-ai built-in registry model projected onto a standalone
+   * PiAiCustomModelDef shape (no `inherits`). Used by the UI to clone a base
+   * model into a self-contained, editable custom model.
+   */
+  getPiRegistryModel: async (provider: string, modelId: string): Promise<PiAiCustomModelDef> => {
+    const res = await fetchWithAuth(
+      `${API_BASE}/v0/management/pi/registry-model?provider=${encodeURIComponent(
+        provider
+      )}&model_id=${encodeURIComponent(modelId)}`
+    );
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err?.error?.message || 'Failed to fetch registry model');
+    }
+    return (await res.json()) as PiAiCustomModelDef;
   },
 
   getOAuthProviderModels: async (

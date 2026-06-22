@@ -438,6 +438,8 @@ function isOpenAiFamily(api: string | undefined): boolean {
 // pair from Plexus config. Resolution precedence:
 //
 //   1. Custom model registry  (config.pi_ai_custom_models[modelId])
+//        - provider-scoped: only matches when the model's `provider` equals
+//          the referencing provider.
 //        - `inherits` clones a registry base, then deep-merges overrides;
 //        - otherwise a full standalone spec.
 //   2. Custom provider registry (config.pi_ai_custom_providers[provider])
@@ -554,9 +556,10 @@ export function resolvePiAiModel(piAiProvider: string, piAiModelId: string): PiA
     | Record<string, PiAiCustomProvider>
     | undefined;
 
-  // 1. Custom model definition.
+  // 1. Custom model definition. A model is provider-scoped: it only matches
+  //    when its `provider` field equals the referencing pi-ai provider.
   const modelSpec = customModels?.[piAiModelId];
-  if (modelSpec) {
+  if (modelSpec && modelSpec.provider === piAiProvider) {
     const resolved = resolveCustomModel(modelSpec, piAiProvider, piAiModelId);
     if (resolved) {
       // A custom provider may still override the wire api/compat.

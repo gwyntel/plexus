@@ -1,4 +1,6 @@
 import { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
+import { getModel } from '@earendil-works/pi-ai';
+import type { Model as PiAiModel } from '@earendil-works/pi-ai';
 import { logger } from '../../utils/logger';
 import { PiAiCustomProviderSchema, PiAiCustomModelSchema } from '../../config';
 import { ConfigService } from '../../services/config-service';
@@ -108,6 +110,18 @@ export async function registerPiAiCustomRoutes(fastify: FastifyInstance) {
           },
         });
       }
+      // When a provider is set, it must reference an existing custom provider.
+      if (result.data.provider) {
+        const providers = await configService.getRepository().getAllPiAiCustomProviders();
+        if (!providers[result.data.provider]) {
+          return reply.code(400).send({
+            error: {
+              message: `Unknown provider '${result.data.provider}': create the custom provider first.`,
+              type: 'invalid_request_error',
+            },
+          });
+        }
+      }
       try {
         await configService.savePiAiCustomModel(name, result.data);
         return reply.send({ success: true, name, definition: result.data });
@@ -137,4 +151,60 @@ export async function registerPiAiCustomRoutes(fastify: FastifyInstance) {
       }
     }
   );
+
+  // ─── Registry Model (for cloning into a standalone custom model) ────────────
+
+  fastify.get(
+    '/v0/management/pi/registry-model',
+    async (request: FastifyRequest, reply: FastifyReply) => {
+      const { provider, model_id } = request.query as { provider?: string; model_id?: string };
+      if (!provider || !model_id) {
+        return reply.code(400).send({
+          error: {
+            message: 'Both `provider` and `model_id` query params are required.',
+            type: 'invalid_request_error',
+          },
+        });
+      }
+      let model: PiAiModel<any> | null = null;
+      try {
+        model = getModel(provider as any, model_id as any) ?? null;
+      } catch {
+        model = null;
+      }
+      if (!model) {
+        return reply.code(404).send({
+          error: {
+            message: `Registry model not found: ${provider}/${model_id}`,
+            type: 'not_found_error',
+          },
+        });
+      }
+      try {
+        return reply.send(cloneModelToStandaloneSpec(model));
+      } catch (e: any) {
+        logger.error('Failed to serialize registry model', e);
+        return reply.code(500).send({ error: { message: e.message, type: 'server_error' } });
+      }
+    }
+  );
+}
+
+/**
+ * Project a resolved pi-ai registry `Model` onto a standalone `PiAiCustomModel`
+ * spec (no `inherits`), so the UI can clone the base into a self-contained,
+ * editable custom model definition. Provider-level concerns (baseUrl, headers)
+ * are intentionally omitted — they come from the Plexus provider config.
+ */
+function cloneModelToStandaloneSpec(model: PiAiModel<any>): Record<string, any> {
+  const spec: Record<string, any> = { api: model.api };
+  if (model.name) spec.name = model.name;
+  if (typeof model.contextWindow === 'number') spec.contextWindow = model.contextWindow;
+  if (typeof model.maxTokens === 'number') spec.maxTokens = model.maxTokens;
+  if (typeof model.reasoning === 'boolean') spec.reasoning = model.reasoning;
+  if (model.thinkingLevelMap) spec.thinkingLevelMap = model.thinkingLevelMap;
+  if (Array.isArray(model.input)) spec.input = model.input;
+  if (model.cost) spec.cost = model.cost;
+  if (model.compat) spec.compat = model.compat;
+  return spec;
 }

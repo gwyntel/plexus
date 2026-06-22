@@ -117,24 +117,28 @@ export async function registerModelRoutes(fastify: FastifyInstance) {
       builtin = [];
     }
 
-    // Custom models are keyed by model id and usable under any provider; surface
-    // them in the picker so operators can select inherited/new model defs.
-    let customEntries: Array<{ id: string; name: string; api: string }> = [];
+    // Custom models are provider-scoped: surface only the ones belonging to this
+    // provider (def.provider === provider). Models scoped to other providers are
+    // hidden so the picker only offers resolvable options.
+    let customEntries: Array<{ id: string; name: string; api: string; custom: true }> = [];
     try {
       const customModels = await ConfigService.getInstance()
         .getRepository()
         .getAllPiAiCustomModels();
-      customEntries = Object.entries(customModels).map(([id, def]) => ({
-        id,
-        name: (def as any).name ?? id,
-        api: (def as any).api ?? 'custom',
-      }));
+      customEntries = Object.entries(customModels)
+        .filter(([, def]) => def.provider === query.provider)
+        .map(([id, def]) => ({
+          id,
+          name: (def as any).name ?? id,
+          api: (def as any).api ?? 'custom',
+          custom: true as const,
+        }));
     } catch {
       /* non-fatal */
     }
 
     const merged = [
-      ...builtin.map((m) => ({ id: m.id, name: m.name, api: m.api as string })),
+      ...builtin.map((m) => ({ id: m.id, name: m.name, api: m.api as string, custom: false })),
       // Avoid duplicating a custom model id that also exists in the registry.
       ...customEntries.filter((c) => !builtin.some((m) => m.id === c.id)),
     ];

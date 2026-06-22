@@ -33,6 +33,7 @@ describe('pi-ai custom registries persistence (inference-v2)', () => {
 
   it('round-trips an inherited custom model', async () => {
     const def: PiAiCustomModel = {
+      provider: 'niche-host',
       inherits: { provider: 'openai', model_id: 'gpt-5.5' },
       contextWindow: 500000,
       maxTokens: 200000,
@@ -45,6 +46,7 @@ describe('pi-ai custom registries persistence (inference-v2)', () => {
 
   it('round-trips a standalone custom model', async () => {
     const def: PiAiCustomModel = {
+      provider: 'niche-host',
       api: 'openai-completions',
       contextWindow: 32000,
       maxTokens: 8192,
