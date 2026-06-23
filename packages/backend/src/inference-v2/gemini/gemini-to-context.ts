@@ -187,8 +187,14 @@ export function geminiRequestToContext(body: any, streaming: boolean): GeminiToC
       for (const part of parts) {
         if (typeof part.text === 'string') {
           if (part.thought === true) {
-            // Thinking/reasoning block
-            contentBlocks.push({ type: 'thinking', thinking: part.text } as ThinkingContent);
+            // Thinking/reasoning block. Preserve thoughtSignature when present —
+            // Gemini returns an encrypted thought signature on thought parts that
+            // MUST be replayed on subsequent turns for multi-turn continuity.
+            const thinkingBlock: ThinkingContent = { type: 'thinking', thinking: part.text };
+            if (typeof part.thoughtSignature === 'string' && part.thoughtSignature) {
+              (thinkingBlock as any).thinkingSignature = part.thoughtSignature;
+            }
+            contentBlocks.push(thinkingBlock);
           } else {
             contentBlocks.push({ type: 'text', text: part.text } as TextContent);
           }
@@ -202,6 +208,18 @@ export function geminiRequestToContext(body: any, streaming: boolean): GeminiToC
             name: part.functionCall.name ?? '',
             arguments: part.functionCall.args ?? {},
           };
+          // Preserve thoughtSignature from the functionCall part. Gemini 3
+          // requires the encrypted thought signature to be echoed back on
+          // functionCall parts in subsequent turns when thinking is enabled;
+          // omitting it yields a 400 "Function call is missing a
+          // thought_signature" error. The signature may live on the part
+          // itself (top-level) or nested under functionCall.
+          const sig =
+            (typeof part.thoughtSignature === 'string' && part.thoughtSignature) ||
+            (typeof part.functionCall.thoughtSignature === 'string' &&
+              part.functionCall.thoughtSignature) ||
+            undefined;
+          if (sig) (tc as any).thoughtSignature = sig;
           contentBlocks.push(tc);
         }
       }
@@ -229,6 +247,25 @@ export function geminiRequestToContext(body: any, streaming: boolean): GeminiToC
           stopReason: 'stop',
           timestamp: Date.now(),
         } as AssistantMessage);
+      }
+
+      // Propagate thought signatures across sibling tool calls in this assistant
+      // turn. Gemini only emits thoughtSignature on the FIRST functionCall part
+      // of a parallel tool-call turn; the remaining calls share the same thought
+      // context and need the signature forwarded so pi-ai doesn't degrade them
+      // when replaying the turn to the Gemini API.
+      const currentAsst = piMessages[piMessages.length - 1];
+      if (currentAsst && currentAsst.role === 'assistant') {
+        const blocks = (currentAsst as AssistantMessage).content as any[];
+        const toolCalls = blocks.filter((b) => b.type === 'toolCall');
+        if (toolCalls.length > 1) {
+          const sharedSig = toolCalls.find((tc) => tc.thoughtSignature)?.thoughtSignature;
+          if (sharedSig) {
+            for (const tc of toolCalls) {
+              if (!tc.thoughtSignature) tc.thoughtSignature = sharedSig;
+            }
+          }
+        }
       }
     } else {
       // role === "user" — split functionResponse parts into ToolResultMessages first

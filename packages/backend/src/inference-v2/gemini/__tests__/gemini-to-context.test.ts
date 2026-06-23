@@ -129,6 +129,105 @@ describe('geminiRequestToContext', () => {
       expect(tc.arguments).toEqual({ q: 'cats' });
     });
 
+    it('preserves thoughtSignature on functionCall parts (top-level)', () => {
+      const result = geminiRequestToContext(
+        {
+          model: 'gemini-3.5-flash',
+          contents: [
+            { role: 'user', parts: [{ text: 'Use a tool' }] },
+            {
+              role: 'model',
+              parts: [
+                {
+                  functionCall: { name: 'bash', args: { command: 'ls' } },
+                  thoughtSignature: 'SIG_BASE64_PAYLOAD',
+                },
+              ],
+            },
+          ],
+        },
+        false
+      );
+      const asst = result.context.messages[1]!;
+      const tc = (asst.content as any[]).find((b: any) => b.type === 'toolCall');
+      expect(tc.thoughtSignature).toBe('SIG_BASE64_PAYLOAD');
+    });
+
+    it('preserves thoughtSignature nested under functionCall', () => {
+      const result = geminiRequestToContext(
+        {
+          model: 'gemini-3.5-flash',
+          contents: [
+            { role: 'user', parts: [{ text: 'Use a tool' }] },
+            {
+              role: 'model',
+              parts: [
+                {
+                  functionCall: {
+                    name: 'bash',
+                    args: { command: 'ls' },
+                    thoughtSignature: 'NESTED_SIG',
+                  },
+                },
+              ],
+            },
+          ],
+        },
+        false
+      );
+      const asst = result.context.messages[1]!;
+      const tc = (asst.content as any[]).find((b: any) => b.type === 'toolCall');
+      expect(tc.thoughtSignature).toBe('NESTED_SIG');
+    });
+
+    it('propagates a shared thoughtSignature to sibling tool calls in a parallel turn', () => {
+      // Gemini only puts thoughtSignature on the first functionCall of a
+      // parallel tool-call turn; siblings share the same thought context.
+      const result = geminiRequestToContext(
+        {
+          model: 'gemini-3.5-flash',
+          contents: [
+            { role: 'user', parts: [{ text: 'Two tools' }] },
+            {
+              role: 'model',
+              parts: [{ functionCall: { name: 'fn1', args: {} }, thoughtSignature: 'SHARED_SIG' }],
+            },
+            { role: 'model', parts: [{ functionCall: { name: 'fn2', args: {} } }] },
+          ],
+        },
+        false
+      );
+      const assistants = result.context.messages.filter((m) => m.role === 'assistant');
+      expect(assistants).toHaveLength(1);
+      const toolCalls = (assistants[0]!.content as any[]).filter((b: any) => b.type === 'toolCall');
+      expect(toolCalls).toHaveLength(2);
+      expect(toolCalls[0].thoughtSignature).toBe('SHARED_SIG');
+      expect(toolCalls[1].thoughtSignature).toBe('SHARED_SIG');
+    });
+
+    it('preserves thinkingSignature on thought:true parts', () => {
+      const result = geminiRequestToContext(
+        {
+          model: 'gemini-3.5-flash',
+          contents: [
+            { role: 'user', parts: [{ text: 'Think' }] },
+            {
+              role: 'model',
+              parts: [
+                { text: 'Deep thought', thought: true, thoughtSignature: 'THINK_SIG' },
+                { text: 'Answer' },
+              ],
+            },
+          ],
+        },
+        false
+      );
+      const asst = result.context.messages[1]!;
+      const thinking = (asst.content as any[]).find((b: any) => b.type === 'thinking');
+      expect(thinking?.thinking).toBe('Deep thought');
+      expect(thinking?.thinkingSignature).toBe('THINK_SIG');
+    });
+
     it('merges consecutive model turns into one AssistantMessage', () => {
       const result = geminiRequestToContext(
         {
