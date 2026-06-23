@@ -186,6 +186,107 @@ export type MatchCondition = z.infer<typeof MatchConditionSchema>;
 export type ReasoningRewriteRule = z.infer<typeof ReasoningRewriteRuleSchema>;
 export type ReasoningRewriteOptions = z.infer<typeof ReasoningRewriteOptionsSchema>;
 
+// ─── pi-ai custom provider / model definitions (inference-v2) ─────────────────
+//
+// The beta (pi-ai) inference path resolves a pi-ai `Model` object for each
+// routed target. Most upstreams are in pi-ai's built-in registry, but two gaps
+// need filling without waiting for a pi-ai release:
+//
+//   1. Custom providers — a niche OpenAI/Anthropic/Gemini-compatible host that
+//      pi-ai doesn't know. We only need its wire `api` and optional `compat`
+//      overrides; everything else comes from the (inherited or custom) model.
+//
+//   2. Custom / inherited models — a model too new for the registry. Either
+//      `inherits` an existing registry model and deep-merges `overrides` (e.g.
+//      treat gpt-5.6 like gpt-5.5 with a bigger context window), or provides a
+//      full standalone spec.
+//
+// These are workspace-level registries (like user_quotas / mcp_servers),
+// reusable across any number of Plexus providers.
+
+/** pi-ai upstream wire API surfaces a custom provider/model can target. */
+const PiAiApiEnum = z.enum([
+  'openai-completions',
+  'openai-responses',
+  'openai-codex-responses',
+  'azure-openai-responses',
+  'anthropic-messages',
+  'google-generative-ai',
+  'google-generative-ai-vertex',
+]);
+
+/**
+ * Custom pi-ai provider definition. Keyed by an arbitrary provider id that
+ * Plexus providers reference via `pi_ai_provider`. `compat` is passed through
+ * to pi-ai verbatim (OpenAI/Anthropic compat shape; validated loosely here).
+ */
+export const PiAiCustomProviderSchema = z.object({
+  /** Upstream wire API this provider speaks. */
+  api: PiAiApiEnum,
+  /** Optional human label for the UI. */
+  display_name: z.string().optional(),
+  /** pi-ai compat overrides (OpenAICompletionsCompat / AnthropicMessagesCompat / …). */
+  compat: z.record(z.string(), z.any()).optional(),
+});
+
+/** Pricing block in a custom model spec (per-million-token rates). */
+const PiAiModelCostSchema = z.object({
+  input: z.number().min(0).default(0),
+  output: z.number().min(0).default(0),
+  cacheRead: z.number().min(0).default(0),
+  cacheWrite: z.number().min(0).default(0),
+});
+
+/**
+ * Custom pi-ai model definition. Keyed by an arbitrary model id that Plexus
+ * provider-models reference via `pi_ai_model_id`.
+ *
+ * A model is scoped to a single custom provider via `provider` (the custom
+ * provider id). Resolution only matches a custom model when its `provider`
+ * equals the `pi_ai_provider` of the referencing Plexus provider.
+ *
+ * Two modes (a definition may use one or both — `inherits` first, then the
+ * sibling fields deep-merge as overrides):
+ *   - `inherits`: clone a registry model `{ provider, model_id }` as the base.
+ *   - standalone: provide `api` + the model fields directly.
+ */
+export const PiAiCustomModelSchema = z.object({
+  /**
+   * The custom pi-ai provider id this model belongs to. The model only
+   * resolves for Plexus providers whose `pi_ai_provider` equals this id.
+   */
+  provider: z.string().min(1),
+  /** Clone this registry model as the base, then deep-merge the fields below. */
+  inherits: z
+    .object({
+      provider: z.string().min(1),
+      model_id: z.string().min(1),
+    })
+    .optional(),
+  /** Required when not inheriting (the base has no api to borrow). */
+  api: PiAiApiEnum.optional(),
+  /** Display name override. */
+  name: z.string().optional(),
+  /** Context window (tokens). */
+  contextWindow: z.number().int().positive().optional(),
+  /** Max output tokens. */
+  maxTokens: z.number().int().positive().optional(),
+  /** Whether the model reasons. */
+  reasoning: z.boolean().optional(),
+  /** pi-ai thinking level map (effort → provider value; null = unsupported). */
+  thinkingLevelMap: z.record(z.string(), z.union([z.string(), z.null()])).optional(),
+  /** Accepted input modalities. */
+  input: z.array(z.enum(['text', 'image'])).optional(),
+  /** Per-million-token pricing. */
+  cost: PiAiModelCostSchema.optional(),
+  /** pi-ai compat overrides (deep-merged onto the inherited model's compat). */
+  compat: z.record(z.string(), z.any()).optional(),
+});
+
+export type PiAiApi = z.infer<typeof PiAiApiEnum>;
+export type PiAiCustomProvider = z.infer<typeof PiAiCustomProviderSchema>;
+export type PiAiCustomModel = z.infer<typeof PiAiCustomModelSchema>;
+
 const ModelProviderConfigSchema = z.object({
   pricing: PricingSchema.default({
     source: 'simple',
@@ -921,6 +1022,9 @@ const RawPlexusConfigSchema = z
     backgroundExploration: BackgroundExplorationConfigSchema.optional(),
     mcp_servers: z.record(z.string(), McpServerConfigSchema).optional(),
     user_quotas: z.record(z.string(), QuotaDefinitionSchema).optional(),
+    // Workspace-level pi-ai custom provider / model registries (inference-v2).
+    pi_ai_custom_providers: z.record(z.string(), PiAiCustomProviderSchema).optional(),
+    pi_ai_custom_models: z.record(z.string(), PiAiCustomModelSchema).optional(),
   })
   .passthrough();
 
@@ -1068,9 +1172,33 @@ function hydrateConfig(config: z.infer<typeof RawPlexusConfigSchema>): PlexusCon
   }
 
   // Startup registry validation: warn (non-fatally) for any configured
-  // (pi_ai_provider, pi_ai_model_id) pair that is not in the pi-ai registry.
-  // getModel() throws on unknown pairs — downgrade to a warning so that new or
-  // unreleased model IDs don't prevent Plexus from starting.
+  // (pi_ai_provider, pi_ai_model_id) pair that resolves neither via the custom
+  // registries nor the built-in pi-ai registry. getModel() returns undefined
+  // for unknown pairs; this is a warning (not fatal) so new/unreleased model IDs
+  // or in-progress custom defs don't prevent Plexus from starting.
+  const customModels = config.pi_ai_custom_models ?? {};
+  const customProviders = config.pi_ai_custom_providers ?? {};
+  // getModel may return undefined (pi-ai 0.79.x) or throw (older versions /
+  // mocked) for unknown pairs — treat both as "not found".
+  const registryHas = (provider: string, modelId: string): boolean => {
+    try {
+      return getModel(provider as any, modelId as any) != null;
+    } catch {
+      return false;
+    }
+  };
+  const piPairResolves = (provider: string, modelId: string): boolean => {
+    // Custom model: resolves if standalone (has api) or its inheritance base exists.
+    const cm = customModels[modelId];
+    if (cm && cm.provider === provider) {
+      if (cm.inherits) return registryHas(cm.inherits.provider, cm.inherits.model_id);
+      return cm.api != null;
+    }
+    // Custom provider: resolves (supplies api/compat; base may be a skeleton).
+    if (customProviders[provider]) return true;
+    // Built-in registry.
+    return registryHas(provider, modelId);
+  };
   for (const [providerId, providerConfig] of Object.entries(resolvedProviders)) {
     const pc = providerConfig as ProviderConfig;
     if (!pc.pi_ai_provider) continue;
@@ -1080,14 +1208,12 @@ function hydrateConfig(config: z.infer<typeof RawPlexusConfigSchema>): PlexusCon
     )) {
       const piAiModelId = modelCfg.pi_ai_model_id;
       if (!piAiModelId) continue;
-      try {
-        getModel(pc.pi_ai_provider as any, piAiModelId as any);
-      } catch {
+      if (!piPairResolves(pc.pi_ai_provider, piAiModelId)) {
         logger.warn(
           `pi-ai registry: provider "${providerId}" model "${modelName}" references ` +
             `pi_ai_provider="${pc.pi_ai_provider}" pi_ai_model_id="${piAiModelId}" ` +
-            `which is not in the pi-ai model registry. The beta inference path will ` +
-            `skip this provider/model combination.`
+            `which resolves via neither the custom registries nor the pi-ai model ` +
+            `registry. The beta inference path will skip this provider/model combination.`
         );
       }
     }

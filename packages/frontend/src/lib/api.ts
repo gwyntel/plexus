@@ -432,6 +432,38 @@ export interface AliasTargetGroup {
 
 export type PreferredApiValue = 'chat_completions' | 'messages' | 'gemini' | 'responses';
 
+export type PiAiApi =
+  | 'openai-completions'
+  | 'openai-responses'
+  | 'openai-codex-responses'
+  | 'azure-openai-responses'
+  | 'anthropic-messages'
+  | 'google-generative-ai'
+  | 'google-generative-ai-vertex';
+
+/** Custom pi-ai provider definition (inference-v2 registry). */
+export interface PiAiCustomProviderDef {
+  api: PiAiApi;
+  display_name?: string;
+  compat?: Record<string, any>;
+}
+
+/** Custom / inherited pi-ai model definition (inference-v2 registry). */
+export interface PiAiCustomModelDef {
+  /** Custom pi-ai provider id this model belongs to (provider-scoped, required). */
+  provider: string;
+  inherits?: { provider: string; model_id: string };
+  api?: PiAiApi;
+  name?: string;
+  contextWindow?: number;
+  maxTokens?: number;
+  reasoning?: boolean;
+  thinkingLevelMap?: Record<string, string | null>;
+  input?: Array<'text' | 'image'>;
+  cost?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number };
+  compat?: Record<string, any>;
+}
+
 export interface Alias {
   id: string;
   aliases?: string[];
@@ -2650,13 +2682,85 @@ export const api = {
   getPiModels: async (
     provider: string,
     q?: string
-  ): Promise<Array<{ id: string; name: string; api: string }>> => {
+  ): Promise<Array<{ id: string; name: string; api: string; custom: boolean }>> => {
     const params = new URLSearchParams({ provider });
     if (q) params.set('q', q);
     const res = await fetchWithAuth(`${API_BASE}/v0/management/pi/models?${params}`);
     if (!res.ok) throw new Error('Failed to fetch pi models');
-    const json = (await res.json()) as { data: Array<{ id: string; name: string; api: string }> };
+    const json = (await res.json()) as {
+      data: Array<{ id: string; name: string; api: string; custom: boolean }>;
+    };
     return json.data;
+  },
+
+  // ─── pi-ai custom provider / model registries (inference-v2) ───────────────
+
+  getPiCustomProviders: async (): Promise<Record<string, PiAiCustomProviderDef>> => {
+    const res = await fetchWithAuth(`${API_BASE}/v0/management/pi/custom-providers`);
+    if (!res.ok) throw new Error('Failed to fetch pi custom providers');
+    return (await res.json()) as Record<string, PiAiCustomProviderDef>;
+  },
+
+  savePiCustomProvider: async (name: string, def: PiAiCustomProviderDef): Promise<void> => {
+    const res = await fetchWithAuth(
+      `${API_BASE}/v0/management/pi/custom-providers/${encodeURIComponent(name)}`,
+      { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(def) }
+    );
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err?.error?.message || 'Failed to save custom provider');
+    }
+  },
+
+  deletePiCustomProvider: async (name: string): Promise<void> => {
+    const res = await fetchWithAuth(
+      `${API_BASE}/v0/management/pi/custom-providers/${encodeURIComponent(name)}`,
+      { method: 'DELETE' }
+    );
+    if (!res.ok) throw new Error('Failed to delete custom provider');
+  },
+
+  getPiCustomModels: async (): Promise<Record<string, PiAiCustomModelDef>> => {
+    const res = await fetchWithAuth(`${API_BASE}/v0/management/pi/custom-models`);
+    if (!res.ok) throw new Error('Failed to fetch pi custom models');
+    return (await res.json()) as Record<string, PiAiCustomModelDef>;
+  },
+
+  savePiCustomModel: async (name: string, def: PiAiCustomModelDef): Promise<void> => {
+    const res = await fetchWithAuth(
+      `${API_BASE}/v0/management/pi/custom-models/${encodeURIComponent(name)}`,
+      { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(def) }
+    );
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err?.error?.message || 'Failed to save custom model');
+    }
+  },
+
+  deletePiCustomModel: async (name: string): Promise<void> => {
+    const res = await fetchWithAuth(
+      `${API_BASE}/v0/management/pi/custom-models/${encodeURIComponent(name)}`,
+      { method: 'DELETE' }
+    );
+    if (!res.ok) throw new Error('Failed to delete custom model');
+  },
+
+  /**
+   * Fetch a pi-ai built-in registry model projected onto a standalone
+   * PiAiCustomModelDef shape (no `inherits`). Used by the UI to clone a base
+   * model into a self-contained, editable custom model.
+   */
+  getPiRegistryModel: async (provider: string, modelId: string): Promise<PiAiCustomModelDef> => {
+    const res = await fetchWithAuth(
+      `${API_BASE}/v0/management/pi/registry-model?provider=${encodeURIComponent(
+        provider
+      )}&model_id=${encodeURIComponent(modelId)}`
+    );
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err?.error?.message || 'Failed to fetch registry model');
+    }
+    return (await res.json()) as PiAiCustomModelDef;
   },
 
   getOAuthProviderModels: async (

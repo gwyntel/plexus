@@ -143,7 +143,9 @@ export function ProviderModelsEditor({
   const [modelAdvancedOpen, setModelAdvancedOpen] = useState<Record<string, boolean>>({});
 
   // pi-ai model dropdown state — shared across all models (same provider)
-  const [piModels, setPiModels] = useState<Array<{ id: string; name: string; api: string }>>([]);
+  const [piModels, setPiModels] = useState<
+    Array<{ id: string; name: string; api: string; custom: boolean }>
+  >([]);
   const [piModelCustom, setPiModelCustom] = useState<Record<string, boolean>>({});
 
   const piAiProvider = editingProvider.pi_ai_provider;
@@ -468,8 +470,13 @@ export function ProviderModelsEditor({
                               >
                                 <option value="">— none —</option>
                                 {piModels.map((m) => (
-                                  <option key={m.id} value={m.id} title={m.api}>
+                                  <option
+                                    key={m.id}
+                                    value={m.id}
+                                    title={`${m.api}${m.custom ? ' · custom model' : ''}`}
+                                  >
                                     {m.id}
+                                    {m.custom ? ' (custom)' : ''}
                                   </option>
                                 ))}
                                 <option value="__custom__">custom...</option>
