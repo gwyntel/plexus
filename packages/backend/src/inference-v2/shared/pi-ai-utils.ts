@@ -573,7 +573,8 @@ export function resolvePiAiModel(piAiProvider: string, piAiModelId: string): PiA
   //    when its `provider` field equals the referencing pi-ai provider.
   //    First, look up via the compound key `${piAiProvider}:${piAiModelId}`,
   //    then fall back to the plain key `piAiModelId` for backwards compatibility.
-  const modelSpec = customModels?.[`${piAiProvider}:${piAiModelId}`] ?? customModels?.[piAiModelId];
+  const compoundKey = piAiModelId.includes(':') ? piAiModelId : `${piAiProvider}:${piAiModelId}`;
+  const modelSpec = customModels?.[compoundKey] ?? customModels?.[piAiModelId];
   if (modelSpec && modelSpec.provider === piAiProvider) {
     const resolved = resolveCustomModel(modelSpec, piAiProvider, piAiModelId);
     if (resolved) {

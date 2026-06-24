@@ -755,11 +755,16 @@ function ProviderRow({
                     variant="secondary"
                     size="sm"
                     leftIcon={<Plus size={14} />}
-                    disabled={
-                      !draftModel.trim() ||
-                      !!models[`${name}:${draftModel.trim()}`] ||
-                      (!!models[draftModel.trim()] && models[draftModel.trim()].provider === name)
-                    }
+                    disabled={(() => {
+                      const trimmedModel = draftModel.trim();
+                      const isValidModelId = /^[a-zA-Z0-9][a-zA-Z0-9.\-_]*$/.test(trimmedModel);
+                      return (
+                        !trimmedModel ||
+                        !isValidModelId ||
+                        !!models[`${name}:${trimmedModel}`] ||
+                        (!!models[trimmedModel] && models[trimmedModel].provider === name)
+                      );
+                    })()}
                     onClick={async () => {
                       const id = draftModel.trim();
                       const key = `${name}:${id}`;
