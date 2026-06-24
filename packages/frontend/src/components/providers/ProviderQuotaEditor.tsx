@@ -25,6 +25,7 @@ import { OpenCodeGoQuotaConfig } from '../quota/OpenCodeGoQuotaConfig';
 import { CrofQuotaConfig } from '../quota/CrofQuotaConfig';
 import { ExeDevQuotaConfig } from '../quota/ExeDevQuotaConfig';
 import { HyperQuotaConfig } from '../quota/HyperQuotaConfig';
+import { SakanaQuotaConfig } from '../quota/SakanaQuotaConfig';
 
 interface Props {
   editingProvider: Provider;
@@ -69,6 +70,7 @@ const QUOTA_CONFIG_MAP: Record<
   crof: CrofQuotaConfig,
   exedev: ExeDevQuotaConfig,
   hyper: HyperQuotaConfig,
+  sakana: SakanaQuotaConfig,
 };
 
 export function ProviderQuotaEditor({
