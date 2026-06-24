@@ -274,6 +274,8 @@ jobs:
         if: always()
         run: |
           if [ -f release-notes.md ]; then
+            # Ensure the file ends with a newline to prevent delimiter parser issues
+            [[ -n "$(tail -c1 release-notes.md)" ]] && echo "" >> release-notes.md
             {
               echo 'notes<<RELEASE_NOTES_EOF'
               cat release-notes.md
