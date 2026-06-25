@@ -4,6 +4,7 @@ import type { Model as PiAiModel } from '@earendil-works/pi-ai';
 import { logger } from '../../utils/logger';
 import { PiAiCustomProviderSchema, PiAiCustomModelSchema } from '../../config';
 import { ConfigService } from '../../services/config-service';
+import { registerCustomProvidersWithPiAi } from '../../inference-v2/shared/pi-ai-utils';
 
 const NAME_RE = /^[a-zA-Z0-9][a-zA-Z0-9.:\-_]{0,126}$/;
 
@@ -45,6 +46,11 @@ export async function registerPiAiCustomRoutes(fastify: FastifyInstance) {
       }
       try {
         await configService.savePiAiCustomProvider(name, result.data);
+        // Re-register with piAiModels so the new provider is available immediately
+        // without requiring a restart.
+        registerCustomProvidersWithPiAi().catch((e) =>
+          logger.warn('Failed to re-register pi-ai custom providers after save', e)
+        );
         return reply.send({ success: true, name, definition: result.data });
       } catch (e: any) {
         logger.error('Failed to save pi-ai custom provider', e);

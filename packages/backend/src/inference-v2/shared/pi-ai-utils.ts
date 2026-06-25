@@ -8,11 +8,94 @@
  *  - buildPiAiModel: construct a call-ready pi-ai Model with base URL override applied
  */
 
-import { clampThinkingLevel, getSupportedThinkingLevels } from '@earendil-works/pi-ai';
+import {
+  clampThinkingLevel,
+  getSupportedThinkingLevels,
+  createProvider,
+} from '@earendil-works/pi-ai';
 import { getBuiltinModel, builtinModels } from '@earendil-works/pi-ai/providers/all';
 import type { Model as PiAiModel, ModelThinkingLevel } from '@earendil-works/pi-ai';
 
 export const piAiModels = builtinModels();
+
+// Lazy API implementation factories, keyed by pi-ai api id.
+// Imported here so we can instantiate the right one when registering custom providers.
+const API_IMPLEMENTATIONS: Record<string, () => any> = {
+  'openai-completions': () =>
+    import('@earendil-works/pi-ai/api/openai-completions.lazy').then((m) =>
+      m.openAICompletionsApi()
+    ),
+  'openai-responses': () =>
+    import('@earendil-works/pi-ai/api/openai-responses.lazy').then((m) => m.openAIResponsesApi()),
+  'openai-codex-responses': () =>
+    import('@earendil-works/pi-ai/api/openai-codex-responses.lazy').then((m) =>
+      m.openAICodexResponsesApi()
+    ),
+  'anthropic-messages': () =>
+    import('@earendil-works/pi-ai/api/anthropic-messages.lazy').then((m) =>
+      m.anthropicMessagesApi()
+    ),
+  'google-generative-ai': () =>
+    import('@earendil-works/pi-ai/api/google-generative-ai.lazy').then((m) =>
+      m.googleGenerativeAIApi()
+    ),
+  'google-generative-ai-vertex': () =>
+    import('@earendil-works/pi-ai/api/google-vertex.lazy').then((m) => m.googleVertexApi()),
+  'azure-openai-responses': () =>
+    import('@earendil-works/pi-ai/api/azure-openai-responses.lazy').then((m) =>
+      m.azureOpenAIResponsesApi()
+    ),
+};
+
+/**
+ * Register each pi_ai_custom_provider from Plexus config with the piAiModels
+ * instance via createProvider() + setProvider(). This must be called at startup
+ * so that toDispatchModel() can find custom providers by id and piAiModels.stream()
+ * routes to the correct API implementation instead of falling back to the openai
+ * builtin (which only supports openai-responses).
+ */
+export async function registerCustomProvidersWithPiAi(): Promise<void> {
+  let cfg: ReturnType<typeof getConfig> | undefined;
+  try {
+    cfg = getConfig();
+  } catch {
+    return;
+  }
+  const customProviders = (cfg as any)?.pi_ai_custom_providers as
+    | Record<string, PiAiCustomProvider>
+    | undefined;
+  if (!customProviders || Object.keys(customProviders).length === 0) return;
+
+  for (const [id, spec] of Object.entries(customProviders)) {
+    if (piAiModels.getProvider(id)) {
+      // Already registered (e.g. duplicate call at reload) — skip.
+      continue;
+    }
+    const apiFactory = API_IMPLEMENTATIONS[spec.api];
+    if (!apiFactory) {
+      logger.warn(
+        `[registerCustomProvidersWithPiAi] Unknown api '${spec.api}' for custom provider '${id}' — skipping`
+      );
+      continue;
+    }
+    try {
+      const apiImpl = await apiFactory();
+      const provider = createProvider({
+        id,
+        name: spec.display_name ?? id,
+        auth: { apiKey: { name: id, resolve: async () => ({ auth: {} }) } },
+        models: [],
+        api: apiImpl,
+      });
+      piAiModels.setProvider(provider);
+    } catch (e: any) {
+      logger.warn(
+        `[registerCustomProvidersWithPiAi] Failed to register custom provider '${id}': ${e.message}`
+      );
+    }
+  }
+}
+
 import {
   getConfig,
   type ProviderConfig,
@@ -25,6 +108,7 @@ import { resolveModelParams, DEFAULT_GPU_PARAMS } from '@plexus/shared';
 import type { ReasoningEffort, ReasoningIntent } from './reasoning';
 import { effortToBudget, intentToEffort } from './reasoning';
 import type { GenerationIntent } from './generation';
+import { logger } from '../../utils/logger';
 
 // ─── buildThinkingOptions ─────────────────────────────────────────────────────
 //
@@ -575,6 +659,7 @@ export function resolvePiAiModel(piAiProvider: string, piAiModelId: string): PiA
   //    then fall back to the plain key `piAiModelId` for backwards compatibility.
   const compoundKey = piAiModelId.includes(':') ? piAiModelId : `${piAiProvider}:${piAiModelId}`;
   const modelSpec = customModels?.[compoundKey] ?? customModels?.[piAiModelId];
+
   if (modelSpec && modelSpec.provider === piAiProvider) {
     const resolved = resolveCustomModel(modelSpec, piAiProvider, piAiModelId);
     if (resolved) {
