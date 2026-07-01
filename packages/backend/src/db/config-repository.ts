@@ -21,6 +21,7 @@ import type {
   BackgroundExplorationConfig,
   TimeoutConfig,
   StallConfigType,
+  McpOAuthConfig,
   MetadataOverrides,
   PiAiCustomProvider,
   PiAiCustomModel,
@@ -1515,6 +1516,22 @@ export class ConfigRepository {
       2
     );
     return { enabled, stalenessThresholdSeconds, workerConcurrency };
+  }
+
+  async getMcpOAuthConfig(): Promise<McpOAuthConfig> {
+    const stored = await this.getSetting<Partial<McpOAuthConfig>>('mcpOAuth', {});
+    const enabled = stored?.enabled === true;
+    const provider = stored?.provider === 'plexus-idp' ? stored.provider : 'plexus-idp';
+    return {
+      enabled,
+      provider,
+      ...(typeof stored?.issuer === 'string' && stored.issuer.trim()
+        ? { issuer: stored.issuer.trim() }
+        : {}),
+      ...(typeof stored?.resource === 'string' && stored.resource.trim()
+        ? { resource: stored.resource.trim() }
+        : {}),
+    };
   }
 
   async getTimeoutConfig(): Promise<TimeoutConfig> {
