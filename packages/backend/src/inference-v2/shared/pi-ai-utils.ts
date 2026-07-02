@@ -789,3 +789,29 @@ export function computeKwhUsed(
   const kwh = estimateKwhUsed(tokensInput, tokensOutput, modelParams, gpuParams);
   return kwh > 0 ? kwh : null;
 }
+
+export function isOAuthRoute(route: RouteResult, targetApiType: string): boolean {
+  if (targetApiType.toLowerCase() === 'oauth') return true;
+  const baseUrl = route.config.api_base_url;
+  if (typeof baseUrl === 'string') {
+    return baseUrl.startsWith('oauth://');
+  }
+  if (baseUrl && typeof baseUrl === 'object') {
+    return Object.values(baseUrl as Record<string, string>).some((value) =>
+      value.startsWith('oauth://')
+    );
+  }
+  return false;
+}
+
+export function isClaudeMaskingApiKeyRoute(route: RouteResult, targetApiType: string): boolean {
+  if (isOAuthRoute(route, targetApiType)) {
+    return false;
+  }
+
+  if (targetApiType.toLowerCase() !== 'messages') {
+    return false;
+  }
+
+  return route.config.useClaudeMasking === true;
+}
