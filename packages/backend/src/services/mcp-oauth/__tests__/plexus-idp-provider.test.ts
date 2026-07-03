@@ -69,6 +69,23 @@ class InMemoryMcpOauthRepository {
     return this.clients.get(clientId) ?? null;
   }
 
+  async findClientByRegistration(input: {
+    clientName?: string | null;
+    redirectUris: string[];
+  }): Promise<McpOauthClientRecord | null> {
+    const requested = [...new Set(input.redirectUris)].sort();
+    return (
+      [...this.clients.values()].find((client) => {
+        const existing = [...new Set(client.redirectUris)].sort();
+        return (
+          client.clientName === (input.clientName ?? null) &&
+          existing.length === requested.length &&
+          existing.every((value, index) => value === requested[index])
+        );
+      }) ?? null
+    );
+  }
+
   async createAuthorizationCode(
     input: NewMcpOauthAuthorizationCode
   ): Promise<McpOauthAuthorizationCodeRecord> {
@@ -187,6 +204,22 @@ describe('PlexusIdpProvider', () => {
     expect(body.redirect_uris).toContain('http://localhost:49231/callback');
     expect(body.redirect_uris).toContain('https://claude.ai/api/mcp/auth_callback');
     expect(body.token_endpoint_auth_method).toBe('none');
+  });
+
+  it('deduplicates identical dynamic client registrations', async () => {
+    const payload = {
+      client_name: 'Claude MCP',
+      redirect_uris: ['http://localhost:49231/callback'],
+    };
+    const firstResponse = await fastify.inject({ method: 'POST', url: '/register', payload });
+    const secondResponse = await fastify.inject({ method: 'POST', url: '/register', payload });
+
+    expect(firstResponse.statusCode).toBe(201);
+    expect(secondResponse.statusCode).toBe(200);
+    const first = JSON.parse(firstResponse.body);
+    const second = JSON.parse(secondResponse.body);
+    expect(second.client_id).toBe(first.client_id);
+    expect(repo.clients.size).toBe(1);
   });
 
   it('requires PKCE and resource on authorize requests', async () => {

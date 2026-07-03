@@ -27,6 +27,7 @@ import type {
   PiAiCustomModel,
 } from '../config';
 import { resolveGpuParams } from '@plexus/shared';
+import { McpOauthRepository } from './mcp-oauth-repository';
 
 // Helper to parse JSON from SQLite text columns (PG jsonb auto-deserializes)
 function parseJson<T>(value: unknown): T | null {
@@ -1087,6 +1088,12 @@ export class ConfigRepository {
       .limit(1);
 
     if (existing.length > 0) {
+      const existingSecretHash =
+        existing[0]!.secretHash ?? hashSecret(decrypt(existing[0]!.secret));
+      if (existingSecretHash && existingSecretHash !== secretHash) {
+        await new McpOauthRepository().revokeTokensForKeyName(name);
+      }
+
       await this.db()
         .update(schema.apiKeys)
         .set({
@@ -1128,6 +1135,7 @@ export class ConfigRepository {
 
   async deleteKey(name: string): Promise<void> {
     const schema = this.schema();
+    await new McpOauthRepository().revokeTokensForKeyName(name);
     await this.db().delete(schema.apiKeys).where(eq(schema.apiKeys.name, name));
   }
 

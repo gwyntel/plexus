@@ -200,6 +200,27 @@ export class PlexusIdpProvider implements AuthProvider {
 
     const redirectUris = parsed.data.redirect_uris;
     const allowedRedirectUris = [...new Set([...WELL_KNOWN_REDIRECT_URIS, ...redirectUris])];
+    const existingClient = await this.repo.findClientByRegistration({
+      clientName: parsed.data.client_name ?? null,
+      redirectUris: allowedRedirectUris,
+    });
+    if (existingClient) {
+      return reply.code(200).send({
+        client_id: existingClient.clientId,
+        client_id_issued_at: Math.floor(existingClient.createdAt / 1000),
+        client_name: existingClient.clientName ?? undefined,
+        redirect_uris: existingClient.redirectUris,
+        grant_types:
+          existingClient.grantTypes.length > 0
+            ? existingClient.grantTypes
+            : ['authorization_code', 'refresh_token'],
+        response_types:
+          existingClient.responseTypes.length > 0 ? existingClient.responseTypes : ['code'],
+        scope: existingClient.scope ?? DEFAULT_SCOPES.join(' '),
+        token_endpoint_auth_method: existingClient.tokenEndpointAuthMethod,
+      });
+    }
+
     const clientId = `mcp_${crypto.randomBytes(16).toString('hex')}`;
     const client = await this.repo.createClient({
       clientId,
@@ -310,7 +331,8 @@ export class PlexusIdpProvider implements AuthProvider {
     if (!record) return null;
     if (record.revokedAt !== null) return null;
     if (record.accessTokenExpiresAt <= Date.now()) return null;
-    if (!this.isTokenBoundToCurrentApiKeySecret(record.keyName, record.apiKeySecretHash)) return null;
+    if (!this.isTokenBoundToCurrentApiKeySecret(record.keyName, record.apiKeySecretHash))
+      return null;
 
     return { keyName: record.keyName, scopes: splitScopes(record.scope) };
   }
@@ -366,7 +388,12 @@ export class PlexusIdpProvider implements AuthProvider {
       return oauthError(reply, 400, 'invalid_target', 'resource mismatch');
     }
     if (!this.isTokenBoundToCurrentApiKeySecret(record.keyName, record.apiKeySecretHash)) {
-      return oauthError(reply, 400, 'invalid_grant', 'Underlying Plexus API key is no longer valid');
+      return oauthError(
+        reply,
+        400,
+        'invalid_grant',
+        'Underlying Plexus API key is no longer valid'
+      );
     }
 
     await this.repo.revokeRefreshToken(data.refresh_token);
@@ -384,7 +411,12 @@ export class PlexusIdpProvider implements AuthProvider {
   ): Promise<void> {
     const apiKeySecretHash = this.getCurrentApiKeySecretHash(input.keyName);
     if (!apiKeySecretHash) {
-      return oauthError(reply, 400, 'invalid_grant', 'Underlying Plexus API key is no longer valid');
+      return oauthError(
+        reply,
+        400,
+        'invalid_grant',
+        'Underlying Plexus API key is no longer valid'
+      );
     }
 
     const accessToken = randomToken(ACCESS_TOKEN_PREFIX);
@@ -442,23 +474,57 @@ export class PlexusIdpProvider implements AuthProvider {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Authorize Plexus MCP</title>
   <style>
-    body { font-family: system-ui, sans-serif; max-width: 44rem; margin: 4rem auto; padding: 0 1rem; line-height: 1.5; }
-    label { display: block; margin: 1rem 0 .35rem; font-weight: 600; }
-    input[type=password] { width: 100%; font: inherit; padding: .6rem; }
-    button { margin-top: 1rem; font: inherit; padding: .65rem 1rem; }
-    code { background: #f4f4f5; padding: .1rem .25rem; border-radius: .25rem; }
+    :root { color-scheme: dark; --bg-deep: #020617; --bg-card: rgba(15, 23, 42, 0.92); --bg-input: rgba(15, 23, 42, 0.72); --border: rgba(148, 163, 184, 0.18); --border-strong: rgba(245, 158, 11, 0.5); --text: #f8fafc; --text-secondary: #cbd5e1; --text-muted: #64748b; --primary: #f59e0b; --secondary: #fbbf24; --danger: #fda4af; }
+    * { box-sizing: border-box; }
+    body { min-height: 100vh; margin: 0; display: flex; align-items: center; justify-content: center; background: radial-gradient(circle at 30% 20%, rgba(245, 158, 11, 0.10), transparent 30%), var(--bg-deep); color: var(--text); font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; line-height: 1.5; padding: 1rem; }
+    .mesh { position: fixed; inset: 0; pointer-events: none; opacity: 0.5; }
+    main { position: relative; width: 100%; max-width: 28rem; }
+    .brand { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 0.75rem; margin-bottom: 2rem; }
+    .mark { width: 44px; height: 44px; border-radius: 999px; background: linear-gradient(135deg, var(--secondary), var(--primary)); box-shadow: 0 0 34px rgba(245, 158, 11, 0.28); display: grid; place-items: center; }
+    .mark svg { width: 26px; height: 26px; color: #0f172a; }
+    .wordmark { font-size: 1.875rem; font-weight: 800; letter-spacing: -0.025em; background: linear-gradient(135deg, var(--secondary), var(--primary)); -webkit-background-clip: text; background-clip: text; color: transparent; }
+    .version { font-size: 10px; text-transform: uppercase; letter-spacing: 0.18em; color: var(--text-muted); font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; }
+    .card { border: 1px solid var(--border); background: linear-gradient(180deg, rgba(30,41,59,0.82), var(--bg-card)); border-radius: 1rem; padding: 2rem; box-shadow: 0 24px 80px rgba(0,0,0,0.45); backdrop-filter: blur(18px); }
+    h1 { font-size: 1.5rem; line-height: 2rem; font-weight: 700; letter-spacing: -0.02em; margin: 0 0 0.375rem; }
+    p { color: var(--text-secondary); font-size: 0.875rem; margin: 0 0 1rem; }
+    .client { margin: 1rem 0; padding: 0.75rem; border-radius: 0.75rem; border: 1px solid rgba(255,255,255,0.06); background: rgba(2, 6, 23, 0.36); }
+    .client p { margin: 0.25rem 0; font-size: 0.75rem; }
+    code { color: #fde68a; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; overflow-wrap: anywhere; }
+    label { display: block; margin: 1rem 0 0.375rem; color: var(--text-secondary); font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; }
+    input[type=password] { width: 100%; border: 1px solid var(--border); border-radius: 0.375rem; background: var(--bg-input); color: var(--text); padding: 0.75rem 0.875rem; font: 0.875rem ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; outline: none; transition: border-color 120ms ease, box-shadow 120ms ease; }
+    input[type=password]:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.18); }
+    button { width: 100%; margin-top: 1rem; border: 0; border-radius: 0.5rem; background: linear-gradient(135deg, var(--secondary), var(--primary)); color: #0f172a; font: 700 0.875rem Inter, ui-sans-serif, system-ui, sans-serif; padding: 0.75rem 1rem; cursor: pointer; display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem; }
+    .note { margin-top: 1.5rem; border-top: 1px solid rgba(255,255,255,0.06); padding-top: 1rem; color: var(--text-muted); font-size: 0.75rem; }
+    .footer { margin-top: 1.5rem; text-align: center; color: var(--text-muted); font-size: 0.75rem; }
   </style>
 </head>
 <body>
-  <h1>Authorize MCP access</h1>
-  <p>Client <code>${htmlEscape(data.client_id)}</code> is requesting access to <code>${htmlEscape(data.resource)}</code>.</p>
-  <p>Paste an existing Plexus API key to bind this OAuth grant to that key. Plexus will not share the raw key with the client.</p>
-  <form method="post" action="/oauth/authorize">
-    ${hidden}
-    <label for="api_key">Plexus API key</label>
-    <input id="api_key" name="api_key" type="password" autocomplete="off" required autofocus>
-    <button type="submit">Authorize</button>
-  </form>
+  <svg class="mesh" viewBox="0 0 800 600" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+    <g stroke="rgba(245,158,11,0.10)" stroke-width="0.5" fill="none"><path d="M0 200 C 200 100, 600 300, 800 180"/><path d="M0 320 C 220 220, 580 420, 800 300"/><path d="M0 440 C 200 340, 600 540, 800 420"/></g>
+    <circle cx="160" cy="200" r="3" fill="#F59E0B" opacity="0.7"/><circle cx="380" cy="260" r="3" fill="#FBBF24" opacity="0.7"/><circle cx="640" cy="220" r="3" fill="#F59E0B" opacity="0.7"/><circle cx="240" cy="380" r="3" fill="#FBBF24" opacity="0.5"/><circle cx="560" cy="420" r="3" fill="#F59E0B" opacity="0.5"/>
+  </svg>
+  <main>
+    <div class="brand">
+      <div class="mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M12 3v18M5 7.5l14 9M19 7.5l-14 9" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></div>
+      <div><span class="wordmark">Plexus</span> <span class="version">MCP OAuth</span></div>
+    </div>
+    <section class="card">
+      <h1>Authorize MCP access</h1>
+      <p>Paste an existing Plexus API key to bind this OAuth grant to that key. Plexus will not share the raw key with the client.</p>
+      <div class="client">
+        <p>Client <code>${htmlEscape(data.client_id)}</code></p>
+        <p>Resource <code>${htmlEscape(data.resource)}</code></p>
+      </div>
+      <form method="post" action="/oauth/authorize">
+        ${hidden}
+        <label for="api_key">Plexus API key</label>
+        <input id="api_key" name="api_key" type="password" autocomplete="off" required autofocus>
+        <button type="submit">Authorize access</button>
+      </form>
+      <div class="note">Only authorize clients you trust. This page is served directly by your Plexus instance.</div>
+    </section>
+    <p class="footer">© 2026 Plexus · Unified LLM Gateway</p>
+  </main>
 </body>
 </html>`;
 

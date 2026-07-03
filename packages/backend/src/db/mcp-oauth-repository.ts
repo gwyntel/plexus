@@ -75,6 +75,7 @@ export interface NewMcpOauthAuthorizationCode {
 }
 
 export interface McpOauthTokenRecord {
+  id?: number;
   accessTokenHash: string;
   accessToken: string;
   refreshTokenHash: string;
@@ -88,6 +89,10 @@ export interface McpOauthTokenRecord {
   refreshTokenExpiresAt: number;
   revokedAt: number | null;
   createdAt: number;
+}
+
+export interface McpOauthClientWithTokensRecord extends McpOauthClientRecord {
+  tokens: Array<Omit<McpOauthTokenRecord, 'accessToken' | 'refreshToken'>>;
 }
 
 export interface NewMcpOauthToken {
@@ -153,6 +158,76 @@ export class McpOauthRepository {
       tokenEndpointAuthMethod: row.tokenEndpointAuthMethod,
       createdAt: row.createdAt,
     };
+  }
+
+  async findClientByRegistration(input: {
+    clientName?: string | null;
+    redirectUris: string[];
+  }): Promise<McpOauthClientRecord | null> {
+    const clients = await this.listClientsWithActiveTokens();
+    const requested = normalizeStringSet(input.redirectUris);
+    const clientName = input.clientName ?? null;
+
+    return (
+      clients.find(
+        (client) =>
+          client.clientName === clientName &&
+          arraysEqual(normalizeStringSet(client.redirectUris), requested)
+      ) ?? null
+    );
+  }
+
+  async listClientsWithActiveTokens(): Promise<McpOauthClientWithTokensRecord[]> {
+    const schema = this.schema();
+    const [clientRows, tokenRows] = await Promise.all([
+      this.db().select().from(schema.mcpOauthClients),
+      this.db()
+        .select()
+        .from(schema.mcpOauthTokens)
+        .where(
+          and(
+            sql`${schema.mcpOauthTokens.revokedAt} IS NULL`,
+            sql`${schema.mcpOauthTokens.refreshTokenExpiresAt} > ${now()}`
+          )
+        ),
+    ]);
+
+    const tokensByClient = new Map<
+      string,
+      Array<Omit<McpOauthTokenRecord, 'accessToken' | 'refreshToken'>>
+    >();
+    for (const row of tokenRows) {
+      const token = this.rowToToken(row);
+      const safeToken = {
+        id: token.id,
+        accessTokenHash: token.accessTokenHash,
+        refreshTokenHash: token.refreshTokenHash,
+        clientId: token.clientId,
+        keyName: token.keyName,
+        apiKeySecretHash: token.apiKeySecretHash,
+        resource: token.resource,
+        scope: token.scope,
+        accessTokenExpiresAt: token.accessTokenExpiresAt,
+        refreshTokenExpiresAt: token.refreshTokenExpiresAt,
+        revokedAt: token.revokedAt,
+        createdAt: token.createdAt,
+      };
+      const bucket = tokensByClient.get(token.clientId) ?? [];
+      bucket.push(safeToken);
+      tokensByClient.set(token.clientId, bucket);
+    }
+
+    return clientRows.map((row: any) => ({
+      clientId: row.clientId,
+      clientName: row.clientName ?? null,
+      redirectUris: parseJsonArray(row.redirectUris),
+      grantTypes: parseJsonArray(row.grantTypes),
+      responseTypes: parseJsonArray(row.responseTypes),
+      scope: row.scope ?? null,
+      tokenEndpointAuthMethod: row.tokenEndpointAuthMethod,
+      createdAt: row.createdAt,
+      tokens: tokensByClient.get(row.clientId) ?? [],
+    }));
   }
 
   async createAuthorizationCode(
@@ -281,8 +356,34 @@ export class McpOauthRepository {
       );
   }
 
+  async revokeTokenById(id: number): Promise<number> {
+    const schema = this.schema();
+    const result = await this.db()
+      .update(schema.mcpOauthTokens)
+      .set({ revokedAt: now(), updatedAt: now() })
+      .where(
+        and(eq(schema.mcpOauthTokens.id, id), sql`${schema.mcpOauthTokens.revokedAt} IS NULL`)
+      );
+    return getAffectedRowCount(result);
+  }
+
+  async revokeTokensForKeyName(keyName: string): Promise<number> {
+    const schema = this.schema();
+    const result = await this.db()
+      .update(schema.mcpOauthTokens)
+      .set({ revokedAt: now(), updatedAt: now() })
+      .where(
+        and(
+          eq(schema.mcpOauthTokens.keyName, keyName),
+          sql`${schema.mcpOauthTokens.revokedAt} IS NULL`
+        )
+      );
+    return getAffectedRowCount(result);
+  }
+
   private rowToToken(row: any): McpOauthTokenRecord {
     return {
+      id: row.id,
       accessTokenHash: row.accessTokenHash,
       accessToken: decryptField(row.accessToken) ?? '',
       refreshTokenHash: row.refreshTokenHash,
@@ -298,4 +399,18 @@ export class McpOauthRepository {
       createdAt: row.createdAt,
     };
   }
+}
+
+function normalizeStringSet(values: string[]): string[] {
+  return [...new Set(values)].sort();
+}
+
+function arraysEqual(a: string[], b: string[]): boolean {
+  return a.length === b.length && a.every((value, index) => value === b[index]);
+}
+
+function getAffectedRowCount(result: unknown): number {
+  return Number(
+    (result as any)?.rowsAffected ?? (result as any)?.changes ?? (result as any)?.rowCount ?? 0
+  );
 }

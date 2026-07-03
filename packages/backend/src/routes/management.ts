@@ -14,6 +14,7 @@ import { registerUserQuotaRoutes } from './management/user-quotas';
 import { registerPiAiCustomRoutes } from './management/pi-ai-custom';
 import { registerOAuthRoutes } from './management/oauth';
 import { registerMcpLogRoutes } from './management/mcp-logs';
+import { registerMcpOAuthManagementRoutes } from './management/mcp-oauth';
 import { registerLoggingRoutes } from './management/logging';
 import { registerRestartRoutes } from './management/restart';
 import { registerProviderRoutes } from './management/providers';
@@ -111,6 +112,7 @@ export async function registerManagementRoutes(
       if (mcpUsageStorage) {
         await registerMcpLogRoutes(adminOnly, mcpUsageStorage);
       }
+      await registerMcpOAuthManagementRoutes(adminOnly);
       if (quotaEnforcer) {
         await registerQuotaEnforcementRoutes(adminOnly, quotaEnforcer);
       }
