@@ -379,6 +379,13 @@
       "when": 1782437360666,
       "tag": "0053_add_context_compaction",
       "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "6",
+      "when": 1782939445246,
+      "tag": "0054_auto_schema_update",
+      "breakpoints": true
     }
   ]
 }
