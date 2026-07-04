@@ -19,7 +19,7 @@ This file is a **guardrail**, not general documentation.
 - **NEVER** produce implementation or summary documents unless specifically requested.
 - **AVOID** searching library type definitions for documentation. Use context/search skills first when available.
 - **ASK** when requirements are ambiguous.
-
+- **NEVER** use --delete-branch on gh commands
 ## Task triggers
 
 ### If the task changes database schema
@@ -59,20 +59,6 @@ Before editing tests:
    - `utils/logger` and `@earendil-works/pi-ai` are globally mocked; do not re-mock them in test files.
    - Reset singletons via `resetForTesting()` methods in `beforeEach`.
 
-### If the task changes the Pi assistant workflow
-
-Files:
-- Workflow: `.github/workflows/pi-assistant.yml`
-- Prompt: `.github/prompts/pi-assistant.md`
-
-Rules:
-- To change agent instructions, edit `.github/prompts/pi-assistant.md`.
-- Do **not** put prompt text directly in the workflow YAML.
-- Available placeholders:
-  - `{{context.*}}` for `@actions/github` context
-  - `{{env.*}}` for environment variables passed to the step
-- Current explicit env passthrough: `INITIAL_COMMENT_ID`
-- If a needed value is not in `context.*`, add it to the `env:` block on the **Run Pi agent** step and reference it as `{{env.YOUR_VAR_NAME}}`.
 
 ### If the task touches frontend CSS/assets/Tailwind
 
@@ -110,5 +96,4 @@ Notes:
 ## Project overview
 
 **Plexus** is a unified API gateway for LLMs built on **Bun** + **Fastify**. It exposes OpenAI- and Anthropic-compatible endpoints and routes requests to backend providers while handling request/response transformation.
-
 **Stack:** Bun, Fastify, Drizzle ORM (SQLite/Postgres), Zod, React frontend (Tailwind v4).
