@@ -23,10 +23,6 @@ export function formatQuotaValue(value: number, limitType: QuotaStatusEntry['lim
   return limitType === 'cost' ? formatCost(value, 5) : formatNumber(value);
 }
 
-/** Sort most-constrained (least remaining headroom) first, mirroring the
- * backend's own `mostConstrained` shim. A `limit === 0` entry is treated as
- * fully constrained (ratio 0) rather than dividing by zero. */
-export function sortMostConstrainedFirst(entries: QuotaStatusEntry[]): QuotaStatusEntry[] {
-  const ratio = (e: QuotaStatusEntry) => (e.limit > 0 ? e.remaining / e.limit : 0);
-  return [...entries].sort((a, b) => ratio(a) - ratio(b));
-}
+/** Most-constrained ranking now lives in @plexus/shared so the backend's
+ * selectors and every frontend view use the exact same ratio logic. */
+export { mostConstrained, sortMostConstrainedFirst } from '@plexus/shared';

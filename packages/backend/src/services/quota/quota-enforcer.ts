@@ -1,5 +1,6 @@
 import { and, eq, gte, inArray, isNotNull, notInArray, or, sql } from 'drizzle-orm';
 import parseDuration from 'parse-duration';
+import { mostConstrained } from '@plexus/shared';
 import { logger } from '../../utils/logger';
 import { getConfig, PlexusConfig, QuotaDefinition, KeyConfig } from '../../config';
 import { getDatabase, getSchema, getCurrentDialect } from '../../db/client';
@@ -356,11 +357,7 @@ export class QuotaEnforcer {
     if (!ctx) return null;
 
     const applicable = ctx.checks.filter((c) => scopeMatches(c.scope, provider, model));
-    if (applicable.length === 0) return null;
-
-    return applicable.reduce((min, c) =>
-      c.remaining / c.limit < min.remaining / min.limit ? c : min
-    );
+    return mostConstrained(applicable);
   }
 
   private computeUsageValue(limitType: 'requests' | 'tokens' | 'cost', usage: UsageRecord): number {

@@ -28,7 +28,12 @@ import {
 } from 'lucide-react';
 import { formatNumber, formatCost } from '../lib/format';
 import { isClipboardAvailable, copyToClipboard, generateUUID } from '../lib/clipboard';
-import { statusForPercent, formatQuotaValue, sortMostConstrainedFirst } from '../lib/quota';
+import {
+  statusForPercent,
+  formatQuotaValue,
+  sortMostConstrainedFirst,
+  mostConstrained,
+} from '../lib/quota';
 
 const EMPTY_KEY: KeyConfig = {
   key: '',
@@ -61,15 +66,6 @@ type QuotaStatusResponse = NonNullable<Awaited<ReturnType<typeof api.getQuotaSta
 function isLeakyRollingDef(def: UserQuota | undefined): boolean {
   if (!def) return false;
   return def.type === 'rolling' && (def.limitType === 'requests' || def.limitType === 'tokens');
-}
-
-/** The entry with the smallest remaining/limit ratio — mirrors the backend's
- * `mostConstrained` helper used for the legacy single-quota shim fields.
- * A `limit === 0` entry is treated as fully constrained (ratio 0). */
-function mostConstrainedEntry(entries: QuotaStatusEntry[]): QuotaStatusEntry | null {
-  if (entries.length === 0) return null;
-  const ratio = (e: QuotaStatusEntry) => (e.limit > 0 ? e.remaining / e.limit : 0);
-  return entries.reduce((min, c) => (ratio(c) < ratio(min) ? c : min));
 }
 
 function entryUsagePercent(entry: QuotaStatusEntry): number {
@@ -528,7 +524,7 @@ export const Keys = () => {
               ) : (
                 filteredKeys.map((key) => {
                   const status = quotaStatuses[key.key];
-                  const primary = status ? mostConstrainedEntry(status.quotas) : null;
+                  const primary = status ? mostConstrained(status.quotas) : null;
                   const usagePercent = primary ? entryUsagePercent(primary) : 0;
                   const quotaNames = key.quotas && key.quotas.length > 0 ? key.quotas : null;
                   const usingDefaults = !quotaNames && defaultQuotaNames.length > 0;
@@ -706,7 +702,7 @@ export const Keys = () => {
                 <tbody>
                   {filteredKeys.map((key) => {
                     const status = quotaStatuses[key.key];
-                    const primary = status ? mostConstrainedEntry(status.quotas) : null;
+                    const primary = status ? mostConstrained(status.quotas) : null;
                     const usagePercent = primary ? entryUsagePercent(primary) : 0;
                     const quotaNames = key.quotas && key.quotas.length > 0 ? key.quotas : null;
                     const usingDefaults = !quotaNames && defaultQuotaNames.length > 0;

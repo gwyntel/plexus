@@ -120,6 +120,25 @@ describe('buildQuotaExceededBody', () => {
     const body: any = buildQuotaExceededBody([partiallyUsed, nearlyExhausted]);
     expect(body.error.quota_name).toBe('nearly-exhausted');
   });
+
+  test('a zero-limit snapshot becomes the primary (fully constrained, not NaN)', () => {
+    const nearlyExhausted = makeSnapshot({
+      quotaName: 'nearly-exhausted',
+      limit: 1000,
+      currentUsage: 990,
+      remaining: 10, // ratio 0.01
+    });
+    const zeroLimit = makeSnapshot({
+      quotaName: 'zero-limit',
+      limit: 0,
+      currentUsage: 0,
+      remaining: 0, // fully constrained (ratio 0), not NaN
+    });
+
+    const body: any = buildQuotaExceededBody([nearlyExhausted, zeroLimit]);
+    expect(body.error.quota_name).toBe('zero-limit');
+    expect(body.error.blocking_quotas).toHaveLength(2);
+  });
 });
 
 describe('buildQuotaExceededError', () => {

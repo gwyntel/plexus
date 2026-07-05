@@ -6,7 +6,8 @@ import { DebugManager } from '../../services/debug-manager';
 import { ConfigService } from '../../services/config-service';
 import { ConfigRepository } from '../../db/config-repository';
 import { QuotaEnforcer } from '../../services/quota/quota-enforcer';
-import { mostConstrained, serializeQuotaSnapshot } from './_quota-response';
+import { mostConstrained } from '@plexus/shared';
+import { serializeQuotaSnapshot } from './_quota-response';
 import type { Principal } from './_principal';
 
 const toggleSchema = z.object({
