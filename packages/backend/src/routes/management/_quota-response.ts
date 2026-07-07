@@ -60,17 +60,6 @@ export function serializeQuotaSnapshot(check: QuotaCheckSnapshot): QuotaSnapshot
 }
 
 /**
- * Legacy single-quota shim: the most-constrained check in a key's context
- * (smallest remaining/limit ratio). Both routes keep exposing their
- * pre-Phase-5 top-level fields (derived from this) for wire compat,
- * alongside the new `quotas` array.
- */
-export function mostConstrained(checks: QuotaCheckSnapshot[]): QuotaCheckSnapshot | null {
-  if (checks.length === 0) return null;
-  return checks.reduce((min, c) => (c.remaining / c.limit < min.remaining / min.limit ? c : min));
-}
-
-/**
  * Effective quota-name set for a key, flattened to a plain name list for
  * membership validation on `/quota/clear` and `/quota/recompute` (which the
  * enforcer itself does not guard). Delegates to the enforcer's own

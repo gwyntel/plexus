@@ -1,6 +1,6 @@
 import { describe, test, expect, beforeEach, afterEach, beforeAll, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { QuotaEnforcer, SHARED_OWNER } from '../quota-enforcer';
+import { QuotaEnforcer, SHARED_OWNER, QuotaCheckSnapshot, QuotaContext } from '../quota-enforcer';
 import { setConfigForTesting, PlexusConfig } from '../../../config';
 import { getDatabase, getSchema, getCurrentDialect } from '../../../db/client';
 import { runMigrations } from '../../../db/migrate';
@@ -378,6 +378,36 @@ describe('QuotaEnforcer', () => {
 
     test('returns null for a null context', () => {
       expect(QuotaEnforcer.selectHeaderQuota(null, 'openai', 'gpt-4')).toBeNull();
+    });
+
+    test('a zero-limit quota is selected as fully constrained (regression: NaN ratio)', () => {
+      const snapshot = (overrides: Partial<QuotaCheckSnapshot>): QuotaCheckSnapshot => ({
+        quotaName: 'q',
+        limitType: 'requests',
+        limit: 100,
+        currentUsage: 0,
+        remaining: 100,
+        allowed: true,
+        resetsAtMs: Date.now(),
+        scope: {},
+        global: true,
+        shared: false,
+        source: 'assigned',
+        ...overrides,
+      });
+      // Before consolidation, the unguarded `remaining / limit` made the
+      // zero-limit check's ratio NaN, so it silently lost the reduce.
+      const ctx: QuotaContext = {
+        keyName: 'k',
+        checks: [
+          snapshot({ quotaName: 'nearly-used', limit: 100, currentUsage: 90, remaining: 10 }),
+          snapshot({ quotaName: 'zero-limit', limit: 0, remaining: 0, allowed: false }),
+        ],
+        blockedGlobal: null,
+      };
+
+      const header = QuotaEnforcer.selectHeaderQuota(ctx, 'openai', 'gpt-4');
+      expect(header!.quotaName).toBe('zero-limit');
     });
   });
 

@@ -1,4 +1,5 @@
 import { FastifyRequest, FastifyReply } from 'fastify';
+import { mostConstrained } from '@plexus/shared';
 import { QuotaEnforcer, UsageRecord, QuotaContext, QuotaCheckSnapshot } from './quota-enforcer';
 import { logger } from '../../utils/logger';
 
@@ -17,26 +18,15 @@ export interface QuotaCheckResult {
 }
 
 /**
- * Pick the most-constrained snapshot (smallest remaining/limit ratio) out of
- * a blocking set — used to populate the legacy single-quota top-level
- * fields on the 429 body. Pure; assumes `blocking` is non-empty. A
- * `limit === 0` definition is treated as fully constrained (ratio 0) rather
- * than dividing by zero.
- */
-function selectMostConstrained(blocking: QuotaCheckSnapshot[]): QuotaCheckSnapshot {
-  const ratio = (q: QuotaCheckSnapshot) => (q.limit > 0 ? q.remaining / q.limit : 0);
-  return blocking.reduce((min, q) => (ratio(q) < ratio(min) ? q : min));
-}
-
-/**
  * Build the 429 response body for one or more exhausted quotas. Keeps the
  * legacy top-level shape (message/quota_name/current_usage/limit/resets_at,
  * derived from the most-constrained blocking snapshot) for backward
  * compatibility, and adds `blocking_quotas` — one entry per blocking
  * snapshot — so callers can see every quota that contributed to the block.
+ * Assumes `blocking` is non-empty.
  */
 export function buildQuotaExceededBody(blocking: QuotaCheckSnapshot[]): Record<string, unknown> {
-  const primary = selectMostConstrained(blocking);
+  const primary = mostConstrained(blocking)!;
   return {
     error: {
       message: `Quota exceeded: ${primary.quotaName} limit of ${primary.limit} reached`,
@@ -75,7 +65,7 @@ export function buildQuotaExceededError(
   blocking: QuotaCheckSnapshot[],
   retryHistory?: unknown[]
 ): Error {
-  const primary = selectMostConstrained(blocking);
+  const primary = mostConstrained(blocking)!;
   const error = new Error(
     `Quota exceeded: ${primary.quotaName} limit of ${primary.limit} reached`
   ) as Error & { routingContext?: Record<string, unknown> };

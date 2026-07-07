@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { api, KeyConfig, UserQuota, QuotaStatusEntry, Provider } from '../lib/api';
+import { api, KeyConfig, UserQuota, Provider } from '../lib/api';
 import { Input } from '../components/ui/Input';
 import { TagSelect } from '../components/ui/TagSelect';
 import { Card } from '../components/ui/Card';
@@ -7,7 +7,7 @@ import { Button } from '../components/ui/Button';
 import { Modal } from '../components/ui/Modal';
 import { Tabs } from '../components/ui/Tabs';
 import { Switch } from '../components/ui/Switch';
-import { QuotaProgressBar } from '../components/quota/QuotaProgressBar';
+import { QuotaStatusCard, QuotaChip, hasScope } from '../components/quota';
 import { PageHeader } from '../components/layout/PageHeader';
 import { PageContainer } from '../components/layout/PageContainer';
 import { useToast } from '../contexts/ToastContext';
@@ -22,13 +22,16 @@ import {
   Shield,
   AlertCircle,
   BarChart3,
-  Wrench,
   Users,
-  Info,
 } from 'lucide-react';
 import { formatNumber, formatCost } from '../lib/format';
 import { isClipboardAvailable, copyToClipboard, generateUUID } from '../lib/clipboard';
-import { statusForPercent, formatQuotaValue, sortMostConstrainedFirst } from '../lib/quota';
+import {
+  formatQuotaValue,
+  sortMostConstrainedFirst,
+  mostConstrained,
+  quotaUsagePercent,
+} from '../lib/quota';
 
 const EMPTY_KEY: KeyConfig = {
   key: '',
@@ -61,57 +64,6 @@ type QuotaStatusResponse = NonNullable<Awaited<ReturnType<typeof api.getQuotaSta
 function isLeakyRollingDef(def: UserQuota | undefined): boolean {
   if (!def) return false;
   return def.type === 'rolling' && (def.limitType === 'requests' || def.limitType === 'tokens');
-}
-
-/** The entry with the smallest remaining/limit ratio — mirrors the backend's
- * `mostConstrained` helper used for the legacy single-quota shim fields.
- * A `limit === 0` entry is treated as fully constrained (ratio 0). */
-function mostConstrainedEntry(entries: QuotaStatusEntry[]): QuotaStatusEntry | null {
-  if (entries.length === 0) return null;
-  const ratio = (e: QuotaStatusEntry) => (e.limit > 0 ? e.remaining / e.limit : 0);
-  return entries.reduce((min, c) => (ratio(c) < ratio(min) ? c : min));
-}
-
-function entryUsagePercent(entry: QuotaStatusEntry): number {
-  if (!entry.limit || entry.limit === 0) return 0;
-  return Math.min(100, (entry.currentUsage / entry.limit) * 100);
-}
-
-/** Small pill used to label quota scope/source facts (shared, default,
- * scoped) across the list rows and the status modal. */
-const QuotaChip: React.FC<{ children: React.ReactNode; tone?: 'default' | 'muted' }> = ({
-  children,
-  tone = 'default',
-}) => (
-  <span
-    className={`inline-flex items-center gap-1 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wider rounded-md ${
-      tone === 'muted'
-        ? 'bg-bg-subtle text-text-muted border border-border-glass'
-        : 'bg-primary/10 text-primary border border-primary/20'
-    }`}
-  >
-    {children}
-  </span>
-);
-
-function hasScope(scope: QuotaStatusEntry['scope'] | undefined): boolean {
-  if (!scope) return false;
-  return Boolean(
-    scope.allowedProviders?.length ||
-      scope.excludedProviders?.length ||
-      scope.allowedModels?.length ||
-      scope.excludedModels?.length
-  );
-}
-
-function defHasScope(def: UserQuota | undefined): boolean {
-  if (!def) return false;
-  return Boolean(
-    def.allowedProviders?.length ||
-      def.excludedProviders?.length ||
-      def.allowedModels?.length ||
-      def.excludedModels?.length
-  );
 }
 
 export const Keys = () => {
@@ -528,8 +480,8 @@ export const Keys = () => {
               ) : (
                 filteredKeys.map((key) => {
                   const status = quotaStatuses[key.key];
-                  const primary = status ? mostConstrainedEntry(status.quotas) : null;
-                  const usagePercent = primary ? entryUsagePercent(primary) : 0;
+                  const primary = status ? mostConstrained(status.quotas) : null;
+                  const usagePercent = primary ? quotaUsagePercent(primary) : 0;
                   const quotaNames = key.quotas && key.quotas.length > 0 ? key.quotas : null;
                   const usingDefaults = !quotaNames && defaultQuotaNames.length > 0;
 
@@ -706,8 +658,8 @@ export const Keys = () => {
                 <tbody>
                   {filteredKeys.map((key) => {
                     const status = quotaStatuses[key.key];
-                    const primary = status ? mostConstrainedEntry(status.quotas) : null;
-                    const usagePercent = primary ? entryUsagePercent(primary) : 0;
+                    const primary = status ? mostConstrained(status.quotas) : null;
+                    const usagePercent = primary ? quotaUsagePercent(primary) : 0;
                     const quotaNames = key.quotas && key.quotas.length > 0 ? key.quotas : null;
                     const usingDefaults = !quotaNames && defaultQuotaNames.length > 0;
 
@@ -897,7 +849,7 @@ export const Keys = () => {
                                   <Users size={10} /> shared
                                 </QuotaChip>
                               )}
-                              {defHasScope(quota) && <QuotaChip tone="muted">scoped</QuotaChip>}
+                              {hasScope(quota) && <QuotaChip tone="muted">scoped</QuotaChip>}
                             </div>
                             <div className="mt-1 text-xs text-text-muted">
                               {quota.type}
@@ -996,7 +948,7 @@ export const Keys = () => {
                                   <Users size={10} /> shared
                                 </QuotaChip>
                               )}
-                              {defHasScope(quota) && <QuotaChip tone="muted">scoped</QuotaChip>}
+                              {hasScope(quota) && <QuotaChip tone="muted">scoped</QuotaChip>}
                             </div>
                           </td>
                           <td className="px-4 py-3 text-left border-b border-border-glass text-text">
@@ -1479,99 +1431,17 @@ export const Keys = () => {
                   </p>
                 </div>
               ) : (
-                sortMostConstrainedFirst(selectedQuotaStatus.quotas).map((entry) => {
-                  const def = quotas[entry.name];
-                  const leaky = isLeakyRollingDef(def);
-                  const pct = entryUsagePercent(entry);
-                  return (
-                    <div
-                      key={entry.name}
-                      className="flex flex-col gap-2 p-3 bg-bg-subtle rounded-md border border-border-glass"
-                    >
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="flex flex-wrap items-center gap-1.5 min-w-0">
-                          {entry.allowed ? (
-                            <Check className="text-success shrink-0" size={16} />
-                          ) : (
-                            <AlertCircle className="text-danger shrink-0" size={16} />
-                          )}
-                          <span className="font-medium text-text truncate">{entry.name}</span>
-                          {entry.source === 'default' && (
-                            <QuotaChip tone="muted">default</QuotaChip>
-                          )}
-                          {entry.shared && (
-                            <QuotaChip>
-                              <Users size={10} /> shared
-                            </QuotaChip>
-                          )}
-                          {hasScope(entry.scope) && <QuotaChip tone="muted">scoped</QuotaChip>}
-                        </div>
-                        <div className="flex shrink-0 items-center gap-1">
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            onClick={() => handleClearQuota(selectedQuotaStatus.key, entry.name)}
-                            aria-label={`Reset ${entry.name}`}
-                            title="Reset usage"
-                          >
-                            <RefreshCw size={14} />
-                          </Button>
-                          <span
-                            title={
-                              leaky
-                                ? 'Recompute is unavailable for rolling requests/tokens quotas — their usage cannot be reconstructed from historical data.'
-                                : 'Recompute usage from historical request logs'
-                            }
-                          >
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() =>
-                                handleRecomputeQuota(selectedQuotaStatus.key, entry.name)
-                              }
-                              disabled={leaky || recomputingQuota === entry.name}
-                              aria-label={`Recompute ${entry.name}`}
-                            >
-                              {leaky ? <Info size={14} /> : <Wrench size={14} />}
-                            </Button>
-                          </span>
-                        </div>
-                      </div>
-
-                      <QuotaProgressBar
-                        label={`${entry.limitType}${entry.global ? '' : ' (scoped)'}`}
-                        value={entry.currentUsage}
-                        max={entry.limit}
-                        displayValue={`${formatQuotaValue(entry.currentUsage, entry.limitType)} / ${formatQuotaValue(entry.limit, entry.limitType)}`}
-                        status={statusForPercent(pct)}
-                        size="md"
-                      />
-
-                      <div className="flex items-center justify-between text-xs text-text-muted">
-                        <span>
-                          Remaining:{' '}
-                          <span className="text-text font-medium">
-                            {formatQuotaValue(entry.remaining, entry.limitType)}
-                          </span>
-                        </span>
-                        <span>Resets {new Date(entry.resetsAt).toLocaleString()}</span>
-                      </div>
-
-                      {entry.warnAt !== undefined && (
-                        <p className="text-[11px] text-text-muted">
-                          Warns at {Math.round(entry.warnAt * 100)}% usage
-                        </p>
-                      )}
-
-                      {!entry.allowed && (
-                        <div className="flex items-center gap-2 text-xs text-danger">
-                          <AlertCircle size={12} />
-                          <span>Exhausted — requests using this quota are being rejected.</span>
-                        </div>
-                      )}
-                    </div>
-                  );
-                })
+                sortMostConstrainedFirst(selectedQuotaStatus.quotas).map((entry) => (
+                  <QuotaStatusCard
+                    key={entry.name}
+                    entry={entry}
+                    variant="detailed"
+                    onReset={(name) => handleClearQuota(selectedQuotaStatus.key, name)}
+                    onRecompute={(name) => handleRecomputeQuota(selectedQuotaStatus.key, name)}
+                    recomputeLeaky={isLeakyRollingDef(quotas[entry.name])}
+                    recomputing={recomputingQuota === entry.name}
+                  />
+                ))
               )}
             </div>
           )}

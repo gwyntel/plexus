@@ -21,13 +21,13 @@
  */
 
 import { useEffect, useState } from 'react';
-import { Key, Layers, Boxes, Gauge, Activity, AlertTriangle, Users } from 'lucide-react';
+import { Key, Layers, Boxes, Gauge, Activity, AlertTriangle } from 'lucide-react';
 import { api, type PieChartDataPoint, type QuotaStatusEntry } from '../../../lib/api';
 import { formatNumber, formatTokens, formatCost } from '../../../lib/format';
 import { Card } from '../../ui/Card';
-import { QuotaProgressBar } from '../../quota/QuotaProgressBar';
+import { QuotaStatusCard } from '../../quota';
 import { TimeRangeSelector } from '../TimeRangeSelector';
-import { statusForPercent, formatQuotaValue, sortMostConstrainedFirst } from '../../../lib/quota';
+import { sortMostConstrainedFirst } from '../../../lib/quota';
 
 type TimeRange = 'hour' | 'day' | 'week' | 'month';
 
@@ -50,25 +50,6 @@ interface SummaryStats {
   cachedTokens: number;
   cacheWriteTokens: number;
   todayCost: number;
-}
-
-/**
- * Format an ISO resets-at timestamp as a short relative string, e.g.
- * "in 3h 20m". Falls back to an absolute date for far-future resets.
- */
-function formatResetsIn(iso: string | null): string {
-  if (!iso) return '—';
-  const resetsAt = new Date(iso).getTime();
-  const diffMs = resetsAt - Date.now();
-  if (diffMs <= 0) return 'resetting now';
-  const diffSeconds = Math.floor(diffMs / 1000);
-  const days = Math.floor(diffSeconds / 86400);
-  const hours = Math.floor((diffSeconds % 86400) / 3600);
-  const minutes = Math.floor((diffSeconds % 3600) / 60);
-  if (days > 7) return `on ${new Date(iso).toLocaleDateString()}`;
-  if (days > 0) return `in ${days}d ${hours}h`;
-  if (hours > 0) return `in ${hours}h ${minutes}m`;
-  return `in ${minutes}m`;
 }
 
 /**
@@ -297,51 +278,9 @@ export const OverallTab: React.FC = () => {
             </p>
           ) : (
             <div className="space-y-4">
-              {sortMostConstrainedFirst(quotas).map((q) => {
-                const pct = q.limit > 0 ? Math.min(100, (q.currentUsage / q.limit) * 100) : 0;
-                return (
-                  <div key={q.name} className="space-y-2">
-                    <div className="flex flex-wrap items-center gap-1.5 text-xs">
-                      <span className="font-medium text-text">{q.name}</span>
-                      {q.source === 'default' && (
-                        <span className="px-1.5 py-0.5 rounded-md bg-bg-subtle border border-border-glass text-text-muted uppercase tracking-wider text-[10px]">
-                          default
-                        </span>
-                      )}
-                      {q.shared && (
-                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md bg-primary/10 border border-primary/20 text-primary uppercase tracking-wider text-[10px]">
-                          <Users size={10} /> shared
-                        </span>
-                      )}
-                    </div>
-                    <QuotaProgressBar
-                      label={q.limitType}
-                      value={q.currentUsage}
-                      max={q.limit}
-                      displayValue={`${formatQuotaValue(q.currentUsage, q.limitType)} / ${formatQuotaValue(q.limit, q.limitType)}`}
-                      status={statusForPercent(pct)}
-                      size="md"
-                    />
-                    <div className="flex items-center justify-between text-xs text-text-muted">
-                      <span>
-                        Remaining:{' '}
-                        <span className="text-text font-medium">
-                          {formatQuotaValue(q.remaining, q.limitType)}
-                        </span>
-                      </span>
-                      <span>Resets {formatResetsIn(q.resetsAt)}</span>
-                    </div>
-                    {!q.allowed && (
-                      <div className="flex items-center gap-2 text-xs text-danger">
-                        <AlertTriangle size={14} />
-                        <span>
-                          Quota exhausted — new requests will be rejected until it resets.
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+              {sortMostConstrainedFirst(quotas).map((q) => (
+                <QuotaStatusCard key={q.name} entry={q} resetsAtFormat="relative" />
+              ))}
             </div>
           )}
         </Card>

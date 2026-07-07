@@ -44,6 +44,25 @@ export function formatTimeAgo(seconds: number): string {
 }
 
 /**
+ * Format an ISO resets-at timestamp as a short relative string, e.g.
+ * "in 3h 20m". Falls back to an absolute date for far-future resets.
+ */
+export function formatResetsIn(iso: string | null): string {
+  if (!iso) return '—';
+  const resetsAt = new Date(iso).getTime();
+  const diffMs = resetsAt - Date.now();
+  if (diffMs <= 0) return 'resetting now';
+  const diffSeconds = Math.floor(diffMs / 1000);
+  const days = Math.floor(diffSeconds / 86400);
+  const hours = Math.floor((diffSeconds % 86400) / 3600);
+  const minutes = Math.floor((diffSeconds % 3600) / 60);
+  if (days > 7) return `on ${new Date(iso).toLocaleDateString()}`;
+  if (days > 0) return `in ${days}d ${hours}h`;
+  if (hours > 0) return `in ${hours}h ${minutes}m`;
+  return minutes > 0 ? `in ${minutes}m` : 'in <1m';
+}
+
+/**
  * Format large numbers with K, M, B suffixes (e.g., "1.3k", "2.5M")
  */
 export function formatNumber(num: number, decimals: number = 1): string {
