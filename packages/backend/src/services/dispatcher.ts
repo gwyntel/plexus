@@ -4119,6 +4119,11 @@ export class Dispatcher {
           Object.assign(payload, route.config.extraBody);
         }
 
+        // Merge model-level extraBody (overrides provider level)
+        if (route.modelConfig?.extraBody) {
+          Object.assign(payload, route.modelConfig.extraBody);
+        }
+
         // Merge alias-level extraBody (overrides provider level)
         if (route.canonicalModel) {
           const aliasConfig = getConfig().models?.[route.canonicalModel];
@@ -4405,6 +4410,11 @@ export class Dispatcher {
 
         if (route.config.extraBody) {
           Object.assign(payload, route.config.extraBody);
+        }
+
+        // Merge model-level extraBody (overrides provider level)
+        if (route.modelConfig?.extraBody) {
+          Object.assign(payload, route.modelConfig.extraBody);
         }
 
         // Merge alias-level extraBody (overrides provider level)
