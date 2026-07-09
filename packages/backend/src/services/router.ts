@@ -364,7 +364,11 @@ export class Router {
     // pick to position 0 if it's still a healthy candidate.
     let stickyPick: { provider: string; model: string } | null = null;
     if (alias.sticky_session && sessionKey) {
-      stickyPick = StickySessionManager.getInstance().get(canonicalModel, sessionKey);
+      stickyPick = StickySessionManager.getInstance().get(
+        canonicalModel,
+        incomingApiType || 'chat',
+        sessionKey
+      );
     }
 
     for (const group of alias.target_groups) {

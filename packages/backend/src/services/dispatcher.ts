@@ -619,6 +619,7 @@ export class Dispatcher {
     if (!aliasConfig?.sticky_session) return;
     StickySessionManager.getInstance().set(
       route.canonicalModel,
+      request.incomingApiType || 'chat',
       sessionKey,
       route.provider,
       route.model
