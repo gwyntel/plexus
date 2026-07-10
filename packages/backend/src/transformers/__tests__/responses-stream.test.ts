@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import { ResponsesTransformer } from '../responses';
 
-async function transformEvents(events: any[]): Promise<any[]> {
+async function transformEvents(events: Record<string, unknown>[]): Promise<any[]> {
   const encoder = new TextEncoder();
   const source = new ReadableStream<Uint8Array>({
     start(controller) {
@@ -24,6 +24,96 @@ async function transformEvents(events: any[]): Promise<any[]> {
 }
 
 describe('ResponsesTransformer stream transformation', () => {
+  test('keeps parallel function calls distinct when their argument deltas are interleaved', async () => {
+    const chunks = await transformEvents([
+      {
+        type: 'response.created',
+        response: { id: 'resp_1', model: 'gpt-5', created_at: 1234567890 },
+      },
+      {
+        type: 'response.output_item.added',
+        output_index: 4,
+        item: {
+          id: 'fc_first',
+          type: 'function_call',
+          call_id: 'call_first',
+          name: 'add_task',
+        },
+      },
+      {
+        type: 'response.output_item.added',
+        output_index: 9,
+        item: {
+          id: 'fc_second',
+          type: 'function_call',
+          call_id: 'call_second',
+          name: 'add_task',
+        },
+      },
+      {
+        type: 'response.function_call_arguments.delta',
+        output_index: 9,
+        item_id: 'fc_second',
+        delta: '{"title":"second"}',
+      },
+      {
+        type: 'response.function_call_arguments.delta',
+        output_index: 4,
+        item_id: 'fc_first',
+        delta: '{"title":"first"}',
+      },
+    ]);
+
+    expect(chunks.filter((chunk) => chunk.delta.tool_calls)).toEqual([
+      {
+        id: 'resp_1',
+        model: 'gpt-5',
+        created: expect.any(Number),
+        delta: {
+          tool_calls: [
+            {
+              index: 0,
+              id: 'call_first',
+              type: 'function',
+              function: { name: 'add_task', arguments: '' },
+            },
+          ],
+        },
+        finish_reason: null,
+      },
+      {
+        id: 'resp_1',
+        model: 'gpt-5',
+        created: expect.any(Number),
+        delta: {
+          tool_calls: [
+            {
+              index: 1,
+              id: 'call_second',
+              type: 'function',
+              function: { name: 'add_task', arguments: '' },
+            },
+          ],
+        },
+        finish_reason: null,
+      },
+      {
+        id: 'resp_1',
+        model: 'gpt-5',
+        created: expect.any(Number),
+        delta: { tool_calls: [{ index: 1, function: { arguments: '{"title":"second"}' } }] },
+        finish_reason: null,
+      },
+      {
+        id: 'resp_1',
+        model: 'gpt-5',
+        created: expect.any(Number),
+        delta: { tool_calls: [{ index: 0, function: { arguments: '{"title":"first"}' } }] },
+        finish_reason: null,
+      },
+    ]);
+  });
+
   test('finishes with tool_calls after streaming a function call', async () => {
     const chunks = await transformEvents([
       {
