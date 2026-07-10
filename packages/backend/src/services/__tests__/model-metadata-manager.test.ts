@@ -753,6 +753,56 @@ describe('resolveModelMetadata', () => {
     expect(resolved?.metadata.context_length).toBe(200000);
   });
 
+  test('overrides catalog text output for embeddings aliases', async () => {
+    ModelMetadataManager.resetForTesting();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              openai: {
+                id: 'openai',
+                models: {
+                  'text-embedding-3-small': {
+                    id: 'text-embedding-3-small',
+                    name: 'Text Embedding 3 Small',
+                    modalities: { input: ['text', 'image'], output: ['text'] },
+                  },
+                },
+              },
+            }),
+            { status: 200, headers: { 'Content-Type': 'application/json' } }
+          )
+      )
+    );
+    const manager = ModelMetadataManager.getInstance();
+    await manager.loadAll({
+      openrouter: '/dev/null-nonexistent',
+      modelsDev: 'https://example.com/models.json',
+      catwalk: '/dev/null-nonexistent',
+    });
+    const modelConfig = {
+      type: 'embeddings',
+      target_groups: [
+        {
+          name: 'default',
+          selector: 'random',
+          targets: [{ provider: 'openai', model: 'text-embedding-3-small' }],
+        },
+      ],
+    } as unknown as ModelConfig;
+
+    const resolved = resolveModelMetadata('text-embedding-3-small', modelConfig, {}, manager);
+
+    expect(resolved?.source).toBe('models.dev');
+    expect(resolved?.metadata.architecture).toMatchObject({
+      modality: 'text+image->embeddings',
+      input_modalities: ['text', 'image'],
+      output_modalities: ['embeddings'],
+    });
+  });
+
   test('falls back to conservative name and modality heuristics', () => {
     ModelMetadataManager.resetForTesting();
     const modelConfig = {

@@ -913,6 +913,24 @@ function inferArchitecture(
   }
 }
 
+function applyConfiguredModelType(
+  metadata: NormalizedModelMetadata,
+  configuredType?: ModelConfig['type']
+): NormalizedModelMetadata {
+  if (configuredType !== 'embeddings') return metadata;
+
+  const inputModalities = metadata.architecture?.input_modalities ?? ['text'];
+  return {
+    ...metadata,
+    architecture: {
+      ...metadata.architecture,
+      modality: `${inputModalities.join('+')}->embeddings`,
+      input_modalities: inputModalities,
+      output_modalities: ['embeddings'],
+    },
+  };
+}
+
 function getProviderModelConfig(
   provider: ProviderConfig | undefined,
   model: string
@@ -999,7 +1017,9 @@ export function resolveModelMetadata(
 
   if (configured?.source === 'custom') {
     const metadata = mergeOverrides(undefined, configured.overrides);
-    return metadata ? { metadata, source: 'heuristic' } : undefined;
+    return metadata
+      ? { metadata: applyConfiguredModelType(metadata, modelConfig.type), source: 'heuristic' }
+      : undefined;
   }
 
   if (
@@ -1010,7 +1030,11 @@ export function resolveModelMetadata(
     const catalog = manager.getMetadata(configured.source, configured.source_path);
     const metadata = catalog ? mergeOverrides(catalog, configured.overrides) : undefined;
     return metadata
-      ? { metadata, source: configured.source, sourcePath: configured.source_path }
+      ? {
+          metadata: applyConfiguredModelType(metadata, modelConfig.type),
+          source: configured.source,
+          sourcePath: configured.source_path,
+        }
       : undefined;
   }
 
@@ -1020,7 +1044,9 @@ export function resolveModelMetadata(
     : undefined;
   if (exact) {
     const metadata = mergeOverrides(exact.metadata, configured?.overrides);
-    return metadata ? { ...exact, metadata } : undefined;
+    return metadata
+      ? { ...exact, metadata: applyConfiguredModelType(metadata, modelConfig.type) }
+      : undefined;
   }
 
   const heuristic: NormalizedModelMetadata = {
@@ -1029,7 +1055,9 @@ export function resolveModelMetadata(
     architecture: inferArchitecture(identity.model, modelConfig.type),
   };
   const metadata = mergeOverrides(heuristic, configured?.overrides);
-  return metadata ? { metadata, source: 'heuristic' } : undefined;
+  return metadata
+    ? { metadata: applyConfiguredModelType(metadata, modelConfig.type), source: 'heuristic' }
+    : undefined;
 }
 
 export function resolvePreferredApi(
