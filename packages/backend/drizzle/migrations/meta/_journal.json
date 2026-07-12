@@ -400,6 +400,13 @@
       "when": 1783698913287,
       "tag": "0056_add_client_request_id",
       "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "6",
+      "when": 1783844825369,
+      "tag": "0057_auto_schema_update",
+      "breakpoints": true
     }
   ]
 }
