@@ -132,7 +132,8 @@ export function attachPlexusApiKeyAuth(request: FastifyRequest, result: PlexusAp
   enterRequestContext({ keyName: result.keyName });
 }
 
-export function createAuthHook() {
+export function createAuthHook(options: { allowQueryKey?: boolean } = {}) {
+  const allowQueryKey = options.allowQueryKey !== false;
   return {
     onRequest: async (request: FastifyRequest) => {
       logger.silly(`onRequest called: ${request.method} ${request.url}`);
@@ -148,7 +149,7 @@ export function createAuthHook() {
         // No Authorization header, try x-api-key or x-goog-api-key
         let apiKey = request.headers['x-api-key'] || request.headers['x-goog-api-key'];
 
-        if (!apiKey && request.query && typeof request.query === 'object') {
+        if (allowQueryKey && !apiKey && request.query && typeof request.query === 'object') {
           apiKey = (request.query as any).key;
         }
 
