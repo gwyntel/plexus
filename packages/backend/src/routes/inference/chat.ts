@@ -8,12 +8,13 @@ import { handleResponse } from '../../services/response-handler';
 import { getClientIp } from '../../utils/ip';
 import { DebugManager } from '../../services/debug-manager';
 import { QuotaEnforcer } from '../../services/quota/quota-enforcer';
-import { checkQuotaMiddleware } from '../../services/quota/quota-middleware';
+import { checkQuotaMiddleware, attachQuotaContext } from '../../services/quota/quota-middleware';
+import { saveQuotaBlockedUsage, saveQuotaExceededUsage } from './_quota-error';
 import { attachKeyAccessPolicy } from '../../utils/auth';
 import { wireUpstreamTimeout, wireEarlyDisconnectDetection } from '../../utils/timeout';
 import { wireStallDetection, getGlobalStallConfig } from '../../utils/stall';
 import { sanitizeHeaders } from '../../utils/sanitize-headers';
-import { handleBetaChatCompletions } from '../../inference-v2';
+import { CLIENT_REQUEST_ID_HEADER, getClientRequestId } from '../../utils/client-request-id';
 
 export async function registerChatRoute(
   fastify: FastifyInstance,
@@ -28,15 +29,14 @@ export async function registerChatRoute(
    * and translates the response back to OpenAI format.
    */
   fastify.post('/v1/chat/completions', async (request, reply) => {
-    if ((request as any).keyConfig?.beta === true) {
-      return handleBetaChatCompletions(request, reply, { usageStorage, quotaEnforcer });
-    }
-
     const requestId = crypto.randomUUID();
+    const clientRequestId = getClientRequestId(request.headers);
     reply.header('x-request-id', requestId);
+    if (clientRequestId) reply.header(CLIENT_REQUEST_ID_HEADER, clientRequestId);
     const startTime = Date.now();
     let usageRecord: Partial<UsageRecord> = {
       requestId,
+      clientRequestId,
       date: new Date().toISOString(),
       sourceIp: getClientIp(request),
       incomingApiType: 'chat',
@@ -91,8 +91,12 @@ export async function registerChatRoute(
 
       // Check quota before processing
       if (quotaEnforcer) {
-        const allowed = await checkQuotaMiddleware(request, reply, quotaEnforcer);
-        if (!allowed) return;
+        const quotaCheck = await checkQuotaMiddleware(request, reply, quotaEnforcer);
+        if (!quotaCheck.ok) {
+          saveQuotaBlockedUsage(usageRecord, usageStorage, requestId, startTime);
+          return;
+        }
+        unifiedRequest = attachQuotaContext(unifiedRequest, quotaCheck.context);
       }
 
       const abortController = new AbortController();
@@ -154,6 +158,10 @@ export async function registerChatRoute(
           `Request ${requestId}: ${e.message}, usage recorded as ${e?.routingContext?.code === 'upstream_timeout' ? 'timeout' : 'cancelled'}`
         );
         return;
+      }
+      if (e?.routingContext?.code === 'quota_exceeded') {
+        saveQuotaExceededUsage(e, 'chat', usageRecord, usageStorage, requestId, startTime);
+        return reply.code(429).send(e.routingContext.body);
       }
       usageRecord.responseStatus =
         e?.routingContext?.code === 'upstream_timeout' ? 'timeout' : 'error';

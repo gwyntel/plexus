@@ -11,8 +11,8 @@ interface StickyEntry {
  * enabled so multi-turn requests prefer the same target for cache locality and
  * model-version consistency.
  *
- * Keyed by `${alias}:${sessionKey}` so two aliases sharing a conversation
- * prefix cannot poison each other.
+ * Keyed by `${alias}:${apiType}:${sessionKey}` so two aliases or API wire
+ * contracts sharing a conversation prefix cannot poison each other.
  *
  * No TTL. Bounded by MAX_ENTRIES with insertion-order LRU eviction (Map keeps
  * insertion order; `get` re-inserts to refresh recency).
@@ -50,8 +50,12 @@ export class StickySessionManager {
     return `m:${Bun.hash(anchor).toString(16)}`;
   }
 
-  public get(alias: string, sessionKey: string): StickyEntry | null {
-    const key = `${alias}:${sessionKey}`;
+  private static makeKey(alias: string, apiType: string, sessionKey: string): string {
+    return `${alias}:${apiType.trim().toLowerCase()}:${sessionKey}`;
+  }
+
+  public get(alias: string, apiType: string, sessionKey: string): StickyEntry | null {
+    const key = StickySessionManager.makeKey(alias, apiType, sessionKey);
     const entry = this.entries.get(key);
     if (!entry) return null;
     // Refresh recency: re-insert to move to tail.
@@ -60,8 +64,14 @@ export class StickySessionManager {
     return entry;
   }
 
-  public set(alias: string, sessionKey: string, provider: string, model: string): void {
-    const key = `${alias}:${sessionKey}`;
+  public set(
+    alias: string,
+    apiType: string,
+    sessionKey: string,
+    provider: string,
+    model: string
+  ): void {
+    const key = StickySessionManager.makeKey(alias, apiType, sessionKey);
     // Delete first so re-setting refreshes recency.
     this.entries.delete(key);
     this.entries.set(key, { provider, model });

@@ -34,9 +34,10 @@ export type Principal =
       allowedModels: string[];
       excludedProviders: string[];
       excludedModels: string[];
+      quotaNames: string[];
+      // Deprecated: first entry of quotaNames, kept for transition compat.
       quotaName?: string | null;
       comment?: string | null;
-      beta?: boolean;
     };
 
 declare module 'fastify' {
@@ -100,10 +101,9 @@ export async function resolvePrincipal(request: FastifyRequest): Promise<Princip
       allowedModels?: string[];
       excludedProviders?: string[];
       excludedModels?: string[];
-      quota?: string | null;
+      quotas?: string[];
       comment?: string | null;
       allowedIps?: string[];
-      beta?: boolean;
     };
     // Enforce the key's IP allowlist for the management API too, so a wrong-IP
     // key can neither call inference nor administer.
@@ -118,9 +118,9 @@ export async function resolvePrincipal(request: FastifyRequest): Promise<Princip
       allowedModels: cfg.allowedModels ?? [],
       excludedProviders: cfg.excludedProviders ?? [],
       excludedModels: cfg.excludedModels ?? [],
-      quotaName: cfg.quota ?? null,
+      quotaNames: cfg.quotas ?? [],
+      quotaName: cfg.quotas?.[0] ?? null,
       comment: cfg.comment ?? null,
-      beta: cfg.beta ?? false,
     };
   } catch (err) {
     logger.silly(`api_keys lookup failed: ${(err as Error).message}`);

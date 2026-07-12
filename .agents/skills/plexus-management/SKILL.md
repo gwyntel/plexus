@@ -1,6 +1,14 @@
 ---
 name: plexus-management
-description: Use this skill whenever the agent needs to inspect or administer a running Plexus instance through the management API. This includes request logs, debug traces, enabling/disabling debug capture, providers and model targets, provider balances and quotas, model aliases and target groups, inference keys, user quotas, MCP gateway servers and logs, runtime settings such as failover, exploration, cooldowns, timeouts, stall detection, network restrictions, backup/restore, and system logs. Prefer this skill for any Plexus admin or operational task, even if the user only says "check Plexus", "look at logs", "update a provider", "rotate keys", "configure quotas", or "debug a request".
+description: >-
+  Use this skill to inspect or administer a running Plexus instance via the management API, or debug
+  failures touching Plexus-proxied traffic (oauth, routing, model targets, inference keys, MCP gateway)
+  rather than searching the local codebase. Covers request logs, debug traces (lookup by UUID), enabling/disabling
+  debug capture, providers, model targets, balances, quotas, aliases, target groups, keys, MCP logs, and
+  runtime settings (failover, cooldowns, timeouts, backup/restore). Prefer this for any Plexus admin, operational,
+  or live-debugging task, even if the user only says "check Plexus", "look at logs", "update a provider",
+  "rotate keys", "configure quotas", "debug a request", "review debug trace", or "upstream error" — Plexus state
+  lives behind the management API, not in local files.
 ---
 
 # Plexus Management API
@@ -45,8 +53,8 @@ curl -fsS "$PLEXUS_STAGING_URL/v0/management/providers" \
 Prefer the summary endpoint whenever the user wants totals, rollups, dashboards, or time-window aggregates. It performs aggregation server-side and avoids undercounting that can happen if you inspect only the first page of raw usage rows.
 
 ```bash
-curl -fsS "$PLEXUS_BASE_URL/v0/management/usage/summary?range=week" \
-  -H "x-admin-key: $PLEXUS_ADMIN_KEY" | jq .
+curl -fsS "$PLEXUS_STAGING_URL/v0/management/usage/summary?range=week" \
+  -H "x-admin-key: $PLEXUS_STAGING_ADMIN_KEY" | jq .
 ```
 
 Use `range=hour|day|week|month`, or `range=custom&startDate=...&endDate=...` when the user needs a specific window.
@@ -56,23 +64,23 @@ Use `range=hour|day|week|month`, or `range=custom&startDate=...&endDate=...` whe
 Use raw usage reads for request-level inspection, spot checks, and debugging individual calls.
 
 ```bash
-curl -fsS "$PLEXUS_BASE_URL/v0/management/usage?limit=20&sortDir=desc" \
-  -H "x-admin-key: $PLEXUS_ADMIN_KEY" | jq .
+curl -fsS "$PLEXUS_STAGING_URL/v0/management/usage?limit=20&sortDir=desc" \
+  -H "x-admin-key: $PLEXUS_STAGING_ADMIN_KEY" | jq .
 ```
 
 ### Redacted Key Listing
 
 ```bash
-curl -fsS "$PLEXUS_BASE_URL/v0/management/keys" \
-  -H "x-admin-key: $PLEXUS_ADMIN_KEY" \
+curl -fsS "$PLEXUS_STAGING_URL/v0/management/keys" \
+  -H "x-admin-key: $PLEXUS_STAGING_ADMIN_KEY" \
   | jq 'with_entries(.value.secret = "<redacted>")'
 ```
 
 ### JSON Write
 
 ```bash
-curl -fsS -X PATCH "$PLEXUS_BASE_URL/v0/management/config/failover" \
-  -H "x-admin-key: $PLEXUS_ADMIN_KEY" \
+curl -fsS -X PATCH "$PLEXUS_STAGING_URL/v0/management/config/failover" \
+  -H "x-admin-key: $PLEXUS_STAGING_ADMIN_KEY" \
   -H "content-type: application/json" \
   --data '{"enabled":true}' | jq .
 ```
@@ -82,8 +90,8 @@ curl -fsS -X PATCH "$PLEXUS_BASE_URL/v0/management/config/failover" \
 Use this when making a precise edit to a larger object. Review the generated payload before sending it.
 
 ```bash
-curl -fsS "$PLEXUS_BASE_URL/v0/management/aliases" \
-  -H "x-admin-key: $PLEXUS_ADMIN_KEY" \
+curl -fsS "$PLEXUS_STAGING_URL/v0/management/aliases" \
+  -H "x-admin-key: $PLEXUS_STAGING_ADMIN_KEY" \
   | jq '."my-alias" | .target_groups[0].targets += [{"provider":"openai","model":"gpt-4o-mini"}]'
 ```
 
@@ -100,7 +108,11 @@ curl -fsS "$PLEXUS_BASE_URL/v0/management/aliases" \
 ### Review Or Toggle Debug Tracing
 
 - Check state with `GET /v0/management/debug`.
-- Enable globally with `PATCH /v0/management/debug` and `{"enabled":true,"providers":null}` or set `providers` to an array of provider slugs.
+- Debug target state is in-memory only; it resets on process restart except for `DEBUG=true` startup global capture.
+- Enable globally with `PATCH /v0/management/debug` and `{"enabled":true}`.
+- Set inclusive capture targets with `PATCH /v0/management/debug` and any of `keys`, `aliases`, or `providers`, for example `{"enabled":false,"keys":["mobile-app"],"aliases":["gpt-4o-mini"],"providers":["openai"]}`.
+- Capture is inclusive: a request is recorded when any enabled dimension matches the request key, canonical model alias, selected provider, or global flag. Setting `providers` does not filter out global/key/alias capture.
+- Clear a target list by sending `null` or `[]`, for example `{"providers":null}`.
 - Disable with `PATCH /v0/management/debug` and `{"enabled":false}`.
 - List captures with `GET /v0/management/debug/logs?limit=50`.
 - Fetch a full trace with `GET /v0/management/debug/logs/{requestId}`.
@@ -173,4 +185,3 @@ To load the endpoint map, check for the local copy first. If found, read it dire
 
 local: .agents/skills/plexus-management/references/endpoint-map.md
 fallback with curl: "https://raw.githubusercontent.com/mcowger/plexus/refs/heads/main/.agents/skills/plexus-management/references/endpoint-map.md"
-

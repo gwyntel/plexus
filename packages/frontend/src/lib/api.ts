@@ -1,4 +1,5 @@
 import { formatNumber, formatPoints } from './format';
+import { normalizeApiAccessList } from './apiFormats';
 
 import type { QuotaCheckerInfo } from '../types/quota';
 
@@ -244,6 +245,7 @@ export interface Provider {
   adapter?: any[];
   timeoutMs?: number;
   maxConcurrency?: number | null;
+  auto_compat?: boolean;
   // Per-provider stall detection overrides
   stallTtfbMs?: number | null;
   stallTtfbBytes?: number | null;
@@ -370,7 +372,8 @@ export interface StripAdaptiveThinkingBehavior {
 
 export type AliasBehavior = StripAdaptiveThinkingBehavior; // | NextBehavior | ...
 
-export type MetadataSource = 'openrouter' | 'models.dev' | 'catwalk' | 'custom';
+export type CatalogMetadataSource = 'openrouter' | 'models.dev' | 'catwalk';
+export type MetadataSource = CatalogMetadataSource | 'auto' | 'disabled' | 'custom';
 
 export interface MetadataOverrides {
   name?: string;
@@ -423,7 +426,7 @@ export interface NormalizedModelMetadata {
 }
 
 export interface ModelMetadataRefreshSourceSummary {
-  source: Exclude<MetadataSource, 'custom'>;
+  source: CatalogMetadataSource;
   initialized: boolean;
   count: number;
   error?: string;
@@ -449,9 +452,16 @@ export interface ModelMetadataRefreshResult {
 // an overrides blob with a non-empty `name` (there is no catalog fallback).
 export type AliasMetadata =
   | {
-      source: Exclude<MetadataSource, 'custom'>;
+      source: CatalogMetadataSource;
       source_path: string;
       overrides?: MetadataOverrides;
+    }
+  | {
+      source: 'auto';
+      overrides?: MetadataOverrides;
+    }
+  | {
+      source: 'disabled';
     }
   | {
       source: 'custom';
@@ -466,38 +476,6 @@ export interface AliasTargetGroup {
 }
 
 export type PreferredApiValue = 'chat_completions' | 'messages' | 'gemini' | 'responses';
-
-export type PiAiApi =
-  | 'openai-completions'
-  | 'openai-responses'
-  | 'openai-codex-responses'
-  | 'azure-openai-responses'
-  | 'anthropic-messages'
-  | 'google-generative-ai'
-  | 'google-generative-ai-vertex';
-
-/** Custom pi-ai provider definition (inference-v2 registry). */
-export interface PiAiCustomProviderDef {
-  api: PiAiApi;
-  display_name?: string;
-  compat?: Record<string, any>;
-}
-
-/** Custom / inherited pi-ai model definition (inference-v2 registry). */
-export interface PiAiCustomModelDef {
-  /** Custom pi-ai provider id this model belongs to (provider-scoped, required). */
-  provider: string;
-  inherits?: { provider: string; model_id: string };
-  api?: PiAiApi;
-  name?: string;
-  contextWindow?: number;
-  maxTokens?: number;
-  reasoning?: boolean;
-  thinkingLevelMap?: Record<string, string | null>;
-  input?: Array<'text' | 'image'>;
-  cost?: { input?: number; output?: number; cacheRead?: number; cacheWrite?: number };
-  compat?: Record<string, any>;
-}
 
 export interface Alias {
   id: string;
@@ -561,6 +539,7 @@ export interface Cooldown {
 // Backend Types
 export interface UsageRecord {
   requestId: string;
+  clientRequestId?: string | null;
   date: string;
   sourceIp?: string;
   apiKey?: string;
@@ -568,7 +547,11 @@ export interface UsageRecord {
   incomingApiType?: string;
   provider?: string;
   incomingModelAlias?: string;
+  canonicalModelName?: string | null;
   selectedModelName?: string;
+  finalAttemptProvider?: string | null;
+  finalAttemptModel?: string | null;
+  allAttemptedProviders?: string | null;
   outgoingApiType?: string;
   tokensInput?: number;
   tokensOutput?: number;
@@ -647,6 +630,8 @@ type UsageRecordField = keyof UsageRecord;
 interface UsageQueryParams<T extends UsageRecordField> {
   limit?: number;
   offset?: number;
+  requestId?: string;
+  clientRequestId?: string;
   startDate?: string;
   endDate?: string;
   incomingApiType?: string;
@@ -890,6 +875,8 @@ const buildUsageQuery = <T extends UsageRecordField>(params: UsageQueryParams<T>
 
   if (params.limit !== undefined) searchParams.set('limit', String(params.limit));
   if (params.offset !== undefined) searchParams.set('offset', String(params.offset));
+  if (params.requestId) searchParams.set('requestId', params.requestId);
+  if (params.clientRequestId) searchParams.set('clientRequestId', params.clientRequestId);
   if (params.startDate) searchParams.set('startDate', params.startDate);
   if (params.endDate) searchParams.set('endDate', params.endDate);
   if (params.incomingApiType) searchParams.set('incomingApiType', params.incomingApiType);
@@ -1002,13 +989,16 @@ export interface KeyConfig {
   key: string; // The user-facing alias/name for the key (e.g. 'my-app')
   secret: string; // The actual sk-uuid
   comment?: string;
-  quota?: string; // Optional quota assignment
+  // Zero or more quota-definition names assigned to this key (non-stacking:
+  // when empty, the system's `default_quotas` fallback applies instead).
+  // The deprecated single `quota` field is still accepted by the backend on
+  // write, but responses only ever emit `quotas` — this type follows suit.
+  quotas?: string[];
   allowedModels?: string[];
   allowedProviders?: string[];
   excludedModels?: string[];
   excludedProviders?: string[];
   allowedIps?: string[];
-  beta?: boolean;
 }
 
 export type UsageSortField =
@@ -1021,11 +1011,50 @@ export type UsageSortField =
 
 export type UsageSortDirection = 'asc' | 'desc';
 
-export interface UserQuota {
+/**
+ * Scope-restriction fields shared by every quota definition type. Empty (all
+ * fields absent/empty) means the quota applies to every provider/model pair.
+ * Mirrors `QuotaScopeFields` in `packages/backend/src/config.ts`.
+ */
+export interface QuotaScope {
+  allowedProviders?: string[];
+  excludedProviders?: string[];
+  allowedModels?: string[];
+  excludedModels?: string[];
+}
+
+export interface UserQuota extends QuotaScope {
   type: 'rolling' | 'daily' | 'weekly' | 'monthly';
   limitType: 'requests' | 'tokens' | 'cost';
   limit: number;
   duration?: string; // Required for rolling type
+  // Pools usage across every key referencing this quota into a single bucket
+  // instead of counting each key independently.
+  shared?: boolean;
+  // Early-warning threshold as a fraction of `limit`, e.g. 0.8 = 80%. Must be
+  // in (0, 1) exclusive when set (validated backend-side).
+  warnAt?: number;
+}
+
+/**
+ * Wire shape of one entry in the `quotas[]` array returned by
+ * `GET /v0/management/quota/status/:key` and `GET /v0/management/self/quota`.
+ * Mirrors `QuotaSnapshotJson` in
+ * `packages/backend/src/routes/management/_quota-response.ts`.
+ */
+export interface QuotaStatusEntry {
+  name: string;
+  limitType: 'requests' | 'tokens' | 'cost';
+  limit: number;
+  currentUsage: number;
+  remaining: number;
+  allowed: boolean;
+  resetsAt: string;
+  scope: QuotaScope;
+  global: boolean;
+  shared: boolean;
+  warnAt?: number;
+  source: 'assigned' | 'default';
 }
 
 export interface QuotaConfig {
@@ -1109,6 +1138,49 @@ export interface CompactionSettings {
   protectRecent?: number;
   native?: { maxArrayItems?: number; maxStringChars?: number };
   headroom?: { baseUrl?: string; apiKey?: string; targetRatio?: number | null; timeoutMs?: number };
+}
+
+export interface ModelResolutionPreview {
+  canonical_model: {
+    provider?: string;
+    model: string;
+    basis: 'pi_model' | 'target' | 'alias';
+  };
+  pi_model: { provider: string; model_id: string; name: string } | null;
+  metadata: {
+    source: CatalogMetadataSource | 'heuristic';
+    source_path?: string;
+    name: string;
+  } | null;
+  preferred_api: PreferredApiValue[] | null;
+}
+
+function aliasToConfigPayload(alias: Alias): Record<string, unknown> {
+  return {
+    priority: alias.priority || 'selector',
+    additional_aliases: alias.aliases,
+    use_image_fallthrough: alias.use_image_fallthrough || false,
+    enforce_limits: alias.enforce_limits || false,
+    sticky_session: alias.sticky_session ?? true,
+    ...(alias.preferred_api?.length ? { preferred_api: alias.preferred_api } : {}),
+    ...(alias.type && { type: alias.type }),
+    ...(alias.advanced?.length ? { advanced: alias.advanced } : {}),
+    ...(alias.metadata && { metadata: alias.metadata }),
+    ...(alias.pi_model && { pi_model: alias.pi_model }),
+    ...(alias.model_architecture && { model_architecture: alias.model_architecture }),
+    ...(alias.extraBody && Object.keys(alias.extraBody).length > 0
+      ? { extraBody: alias.extraBody }
+      : {}),
+    target_groups: alias.target_groups.map((group) => ({
+      name: group.name,
+      selector: group.selector,
+      targets: group.targets.map((target) => ({
+        provider: target.provider,
+        model: target.model,
+        ...(target.enabled === false && { enabled: false }),
+      })),
+    })),
+  };
 }
 
 export const api = {
@@ -1673,6 +1745,39 @@ export const api = {
     return await res.json();
   },
 
+  /** All system settings (a flat key/value bag; `default_quotas` lives here). */
+  getSystemSettings: async (): Promise<Record<string, unknown>> => {
+    const res = await fetchWithAuth(`${API_BASE}/v0/management/system-settings`);
+    if (!res.ok) throw new Error('Failed to fetch system settings');
+    return await res.json();
+  },
+
+  /** Merge-patch one or more system settings (e.g. `{ default_quotas: [...] }`). */
+  updateSystemSettings: async (settings: Record<string, unknown>): Promise<void> => {
+    const res = await fetchWithAuth(`${API_BASE}/v0/management/system-settings`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(settings),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Unknown error' }));
+      throw new Error(err.error?.message || err.error || 'Failed to update system settings');
+    }
+  },
+
+  /** Convenience wrapper: the key names substituted in when a key has no
+   * `quotas` of its own. */
+  getDefaultQuotas: async (): Promise<string[]> => {
+    const settings = await api.getSystemSettings();
+    return Array.isArray(settings.default_quotas)
+      ? settings.default_quotas.filter((v): v is string => typeof v === 'string')
+      : [];
+  },
+
+  setDefaultQuotas: async (names: string[]): Promise<void> => {
+    await api.updateSystemSettings({ default_quotas: names });
+  },
+
   restart: async (): Promise<{ success: boolean; message: string }> => {
     const res = await fetchWithAuth(`${API_BASE}/v0/management/restart`, {
       method: 'POST',
@@ -1693,13 +1798,12 @@ export const api = {
         {
           secret: string;
           comment?: string;
-          quota?: string;
+          quotas?: string[];
           allowedModels?: string[];
           allowedProviders?: string[];
           excludedModels?: string[];
           excludedProviders?: string[];
           allowedIps?: string[];
-          beta?: boolean;
         }
       >;
 
@@ -1707,13 +1811,12 @@ export const api = {
         key,
         secret: val.secret,
         comment: val.comment,
-        quota: val.quota,
+        quotas: val.quotas,
         allowedModels: val.allowedModels,
         allowedProviders: val.allowedProviders,
         excludedModels: val.excludedModels,
         excludedProviders: val.excludedProviders,
         allowedIps: val.allowedIps,
-        beta: val.beta,
       }));
     } catch (e) {
       console.error('API Error getKeys', e);
@@ -1730,13 +1833,12 @@ export const api = {
         body: JSON.stringify({
           secret: keyConfig.secret,
           comment: keyConfig.comment,
-          ...(keyConfig.quota ? { quota: keyConfig.quota } : {}),
+          quotas: keyConfig.quotas ?? [],
           allowedModels: keyConfig.allowedModels ?? [],
           allowedProviders: keyConfig.allowedProviders ?? [],
           excludedModels: keyConfig.excludedModels ?? [],
           excludedProviders: keyConfig.excludedProviders ?? [],
           allowedIps: keyConfig.allowedIps ?? [],
-          beta: !!keyConfig.beta,
         }),
       }
     );
@@ -1979,34 +2081,7 @@ export const api = {
   },
 
   saveAlias: async (alias: Alias, oldId?: string): Promise<void> => {
-    const body: any = {
-      priority: alias.priority || 'selector',
-      additional_aliases: alias.aliases,
-      use_image_fallthrough: alias.use_image_fallthrough || false,
-      enforce_limits: alias.enforce_limits || false,
-      sticky_session: alias.sticky_session ?? true,
-      ...(alias.preferred_api &&
-        alias.preferred_api.length > 0 && {
-          preferred_api: alias.preferred_api,
-        }),
-      ...(alias.type && { type: alias.type }),
-      ...(alias.advanced && alias.advanced.length > 0 && { advanced: alias.advanced }),
-      ...(alias.metadata && { metadata: alias.metadata }),
-      ...(alias.pi_model && { pi_model: alias.pi_model }),
-      // Model architecture override for inference energy calculation
-      ...(alias.model_architecture && { model_architecture: alias.model_architecture }),
-      ...(alias.extraBody &&
-        Object.keys(alias.extraBody).length > 0 && { extraBody: alias.extraBody }),
-      target_groups: alias.target_groups.map((g) => ({
-        name: g.name,
-        selector: g.selector,
-        targets: g.targets.map((t) => ({
-          provider: t.provider,
-          model: t.model,
-          ...(t.enabled === false && { enabled: false }),
-        })),
-      })),
-    };
+    const body = aliasToConfigPayload(alias);
 
     const res = await fetchWithAuth(
       `${API_BASE}/v0/management/aliases/${encodeURIComponent(alias.id)}`,
@@ -2025,6 +2100,16 @@ export const api = {
     if (oldId && oldId !== alias.id) {
       await api.deleteAlias(oldId);
     }
+  },
+
+  previewModelResolution: async (alias: Alias): Promise<ModelResolutionPreview> => {
+    const res = await fetchWithAuth(`${API_BASE}/v0/management/models/metadata/resolve`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ alias_id: alias.id, model: aliasToConfigPayload(alias) }),
+    });
+    if (!res.ok) throw new Error('Failed to resolve automatic model selections');
+    return res.json();
   },
 
   getModels: async (): Promise<Model[]> => {
@@ -2087,7 +2172,7 @@ export const api = {
           if (providerConfig?.models && !Array.isArray(providerConfig.models)) {
             const modelConfig = providerConfig.models[t.model];
             if (modelConfig?.access_via?.length > 0) {
-              apiType = modelConfig.access_via;
+              apiType = normalizeApiAccessList(modelConfig.access_via);
             }
           }
           return {
@@ -2247,29 +2332,60 @@ export const api = {
     }
   },
 
-  getDebugMode: async (): Promise<{ enabled: boolean; providers: string[] | null }> => {
+  getDebugMode: async (): Promise<{
+    enabled: boolean;
+    enabledGlobal?: boolean;
+    enabledKeys?: string[];
+    providers: string[] | null;
+    keys: string[] | null;
+    aliases: string[] | null;
+  }> => {
     try {
       const res = await fetchWithAuth(`${API_BASE}/v0/management/debug`);
       if (!res.ok) throw new Error('Failed to fetch debug status');
       const json = await res.json();
       return {
         enabled: !!json.enabled,
+        enabledGlobal: json.enabledGlobal === undefined ? undefined : !!json.enabledGlobal,
+        enabledKeys: Array.isArray(json.enabledKeys) ? json.enabledKeys : undefined,
         providers: json.providers || null,
+        keys: json.keys || json.enabledKeys || null,
+        aliases: json.aliases || null,
       };
     } catch (e) {
       console.error('API Error getDebugMode', e);
-      return { enabled: false, providers: null };
+      return { enabled: false, providers: null, keys: null, aliases: null };
     }
   },
 
   setDebugMode: async (
     enabled: boolean,
-    providers?: string[] | null
-  ): Promise<{ enabled: boolean; providers: string[] | null }> => {
+    providers?: string[] | null,
+    keys?: string[] | null,
+    aliases?: string[] | null
+  ): Promise<{
+    enabled: boolean;
+    enabledGlobal?: boolean;
+    enabledKeys?: string[];
+    providers: string[] | null;
+    keys: string[] | null;
+    aliases: string[] | null;
+  }> => {
     try {
-      const body: { enabled: boolean; providers?: string[] | null } = { enabled };
+      const body: {
+        enabled: boolean;
+        providers?: string[] | null;
+        keys?: string[] | null;
+        aliases?: string[] | null;
+      } = { enabled };
       if (providers !== undefined) {
         body.providers = providers;
+      }
+      if (keys !== undefined) {
+        body.keys = keys;
+      }
+      if (aliases !== undefined) {
+        body.aliases = aliases;
       }
       const res = await fetchWithAuth(`${API_BASE}/v0/management/debug`, {
         method: 'PATCH',
@@ -2280,7 +2396,11 @@ export const api = {
       const json = await res.json();
       return {
         enabled: !!json.enabled,
+        enabledGlobal: json.enabledGlobal === undefined ? undefined : !!json.enabledGlobal,
+        enabledKeys: Array.isArray(json.enabledKeys) ? json.enabledKeys : undefined,
         providers: json.providers || null,
+        keys: json.keys || json.enabledKeys || null,
+        aliases: json.aliases || null,
       };
     } catch (e) {
       console.error('API Error setDebugMode', e);
@@ -2474,65 +2594,6 @@ export const api = {
     }
   },
 
-  getLegacySnapshotStatus: async (): Promise<{ tableExists: boolean; rowCount: number } | null> => {
-    try {
-      const res = await fetchWithAuth(`${API_BASE}/v0/management/quotas/legacy-snapshot-status`);
-      if (!res.ok) throw new Error('Failed to get legacy snapshot status');
-      return (await res.json()) as { tableExists: boolean; rowCount: number };
-    } catch (e) {
-      console.error('API Error getLegacySnapshotStatus', e);
-      return null;
-    }
-  },
-
-  migrateLegacySnapshots: async (): Promise<{
-    inserted: number;
-    skipped: number;
-    totalSource: number;
-  } | null> => {
-    try {
-      const res = await fetchWithAuth(`${API_BASE}/v0/management/quotas/migrate-legacy-snapshots`, {
-        method: 'POST',
-      });
-      if (!res.ok) throw new Error('Failed to migrate legacy snapshots');
-      return (await res.json()) as { inserted: number; skipped: number; totalSource: number };
-    } catch (e) {
-      console.error('API Error migrateLegacySnapshots', e);
-      return null;
-    }
-  },
-
-  truncateLegacySnapshots: async (): Promise<boolean> => {
-    try {
-      const res = await fetchWithAuth(
-        `${API_BASE}/v0/management/quotas/truncate-legacy-snapshots`,
-        { method: 'POST' }
-      );
-      if (!res.ok) throw new Error('Failed to truncate legacy snapshots');
-      return true;
-    } catch (e) {
-      console.error('API Error truncateLegacySnapshots', e);
-      return false;
-    }
-  },
-
-  downloadLegacySnapshotsBackup: async (format: 'csv' | 'sql'): Promise<void> => {
-    const res = await fetchWithAuth(
-      `${API_BASE}/v0/management/quotas/backup-legacy-snapshots?format=${format}`
-    );
-    if (!res.ok) throw new Error('Failed to download backup');
-    const blob = await res.blob();
-    const disposition = res.headers.get('Content-Disposition') ?? '';
-    const match = disposition.match(/filename="([^"]+)"/);
-    const filename = match?.[1] ?? `quota_snapshots_backup.${format}`;
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename;
-    a.click();
-    URL.revokeObjectURL(url);
-  },
-
   deleteAlias: async (aliasId: string): Promise<void> => {
     const res = await fetchWithAuth(
       `${API_BASE}/v0/management/models/${encodeURIComponent(aliasId)}`,
@@ -2673,7 +2734,7 @@ export const api = {
    * @param limit  - max results (default 50)
    */
   searchModelMetadata: async (
-    source: Exclude<MetadataSource, 'custom'>,
+    source: CatalogMetadataSource,
     query?: string,
     limit?: number
   ): Promise<{ data: { id: string; name: string }[]; count: number }> => {
@@ -2695,7 +2756,7 @@ export const api = {
    * can gracefully fall back to leaving the form blank.
    */
   getModelMetadata: async (
-    source: Exclude<MetadataSource, 'custom'>,
+    source: CatalogMetadataSource,
     sourcePath: string
   ): Promise<NormalizedModelMetadata | null> => {
     const params = new URLSearchParams({ source, source_path: sourcePath });
@@ -2738,76 +2799,6 @@ export const api = {
       data: Array<{ id: string; name: string; api: string; custom: boolean }>;
     };
     return json.data;
-  },
-
-  // ─── pi-ai custom provider / model registries (inference-v2) ───────────────
-
-  getPiCustomProviders: async (): Promise<Record<string, PiAiCustomProviderDef>> => {
-    const res = await fetchWithAuth(`${API_BASE}/v0/management/pi/custom-providers`);
-    if (!res.ok) throw new Error('Failed to fetch pi custom providers');
-    return (await res.json()) as Record<string, PiAiCustomProviderDef>;
-  },
-
-  savePiCustomProvider: async (name: string, def: PiAiCustomProviderDef): Promise<void> => {
-    const res = await fetchWithAuth(
-      `${API_BASE}/v0/management/pi/custom-providers/${encodeURIComponent(name)}`,
-      { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(def) }
-    );
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err?.error?.message || 'Failed to save custom provider');
-    }
-  },
-
-  deletePiCustomProvider: async (name: string): Promise<void> => {
-    const res = await fetchWithAuth(
-      `${API_BASE}/v0/management/pi/custom-providers/${encodeURIComponent(name)}`,
-      { method: 'DELETE' }
-    );
-    if (!res.ok) throw new Error('Failed to delete custom provider');
-  },
-
-  getPiCustomModels: async (): Promise<Record<string, PiAiCustomModelDef>> => {
-    const res = await fetchWithAuth(`${API_BASE}/v0/management/pi/custom-models`);
-    if (!res.ok) throw new Error('Failed to fetch pi custom models');
-    return (await res.json()) as Record<string, PiAiCustomModelDef>;
-  },
-
-  savePiCustomModel: async (name: string, def: PiAiCustomModelDef): Promise<void> => {
-    const res = await fetchWithAuth(
-      `${API_BASE}/v0/management/pi/custom-models/${encodeURIComponent(name)}`,
-      { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(def) }
-    );
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err?.error?.message || 'Failed to save custom model');
-    }
-  },
-
-  deletePiCustomModel: async (name: string): Promise<void> => {
-    const res = await fetchWithAuth(
-      `${API_BASE}/v0/management/pi/custom-models/${encodeURIComponent(name)}`,
-      { method: 'DELETE' }
-    );
-    if (!res.ok) throw new Error('Failed to delete custom model');
-  },
-
-  /**
-   * Fetch a pi-ai built-in registry model projected onto a standalone
-   * PiAiCustomModelDef shape (no `inherits`). Used by the UI to clone a base
-   * model into a self-contained, editable custom model.
-   */
-  getPiRegistryModel: async (provider: string, modelId: string): Promise<PiAiCustomModelDef> => {
-    const res = await fetchWithAuth(
-      `${API_BASE}/v0/management/pi/registry-model?provider=${encodeURIComponent(
-        provider
-      )}&model_id=${encodeURIComponent(modelId)}`
-    );
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err?.error?.message || 'Failed to fetch registry model');
-    }
-    return (await res.json()) as PiAiCustomModelDef;
   },
 
   getOAuthProviderModels: async (
@@ -3068,6 +3059,8 @@ export const api = {
     key: string
   ): Promise<{
     key: string;
+    quotas: QuotaStatusEntry[];
+    // Legacy shim fields, derived from the most-constrained entry in `quotas`.
     quota_name: string | null;
     allowed: boolean;
     current_usage: number;
@@ -3090,16 +3083,51 @@ export const api = {
     }
   },
 
-  clearQuota: async (key: string): Promise<void> => {
+  /** Reset usage for a key's quota(s). Omit `quota` to clear every quota
+   * currently attached to the key. */
+  clearQuota: async (key: string, quota?: string): Promise<void> => {
     const res = await fetchWithAuth(`${API_BASE}/v0/management/quota/clear`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ key }),
+      body: JSON.stringify({ key, ...(quota ? { quota } : {}) }),
     });
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: 'Unknown error' }));
       throw new Error(err.error?.message || err.error || 'Failed to clear quota');
     }
+  },
+
+  /**
+   * Repair a quota bucket by recomputing it from request_usage instead of
+   * trusting the (potentially drifted) counter. Rejected (400, `reason:
+   * 'unsupported_quota_type'`) for rolling requests/tokens defs, which are
+   * inherently leaky (see backend `QuotaEnforcer.recomputeQuota`) — the
+   * thrown error carries `.reason` so callers can special-case that message.
+   */
+  recomputeQuota: async (
+    key: string,
+    quota: string
+  ): Promise<{
+    success: true;
+    key: string;
+    quota: string;
+    usage: number;
+    windowStartMs: number;
+    message: string;
+  }> => {
+    const res = await fetchWithAuth(`${API_BASE}/v0/management/quota/recompute`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ key, quota }),
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Unknown error' }));
+      const message = err.error?.message || err.error || 'Failed to recompute quota';
+      const wrapped = new Error(message) as Error & { reason?: string };
+      wrapped.reason = err.reason;
+      throw wrapped;
+    }
+    return res.json();
   },
 
   /**
@@ -3184,9 +3212,9 @@ export const api = {
     keyName?: string;
     allowedProviders?: string[];
     allowedModels?: string[];
+    quotaNames?: string[];
     quotaName?: string | null;
     comment?: string | null;
-    beta?: boolean;
     traceEnabled?: boolean;
     traceEnabledGlobal?: boolean;
   }> => {
@@ -3242,6 +3270,8 @@ export const api = {
    */
   getSelfQuota: async (): Promise<{
     key: string;
+    quotas: QuotaStatusEntry[];
+    // Legacy shim fields, derived from the most-constrained entry in `quotas`.
     quotaName: string | null;
     allowed: boolean;
     currentUsage: number;
@@ -3402,6 +3432,26 @@ export const api = {
       body: JSON.stringify(updates),
     });
     if (!res.ok) throw new Error('Failed to update failover policy');
+    return res.json();
+  },
+
+  // ─── Capture Trace on Error ─────────────────────────────────────────
+
+  /** Fetch whether traces are captured on error even when debug is off. */
+  getCaptureTraceOnError: async (): Promise<{ enabled: boolean }> => {
+    const res = await fetchWithAuth(`${API_BASE}/v0/management/config/capture-trace-on-error`);
+    if (!res.ok) throw new Error('Failed to fetch capture-trace-on-error setting');
+    return res.json();
+  },
+
+  /** Toggle capturing traces on error even when debug is off. */
+  setCaptureTraceOnError: async (enabled: boolean): Promise<{ enabled: boolean }> => {
+    const res = await fetchWithAuth(`${API_BASE}/v0/management/config/capture-trace-on-error`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled }),
+    });
+    if (!res.ok) throw new Error('Failed to update capture-trace-on-error setting');
     return res.json();
   },
 

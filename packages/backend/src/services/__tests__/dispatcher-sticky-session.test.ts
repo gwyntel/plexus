@@ -143,11 +143,11 @@ describe('Dispatcher sticky_session write-back', () => {
     const sessionKey = StickySessionManager.computeSessionKey(req)!;
     expect(sessionKey).not.toBeNull();
 
-    expect(StickySessionManager.getInstance().get('test-alias', sessionKey)).toBeNull();
+    expect(StickySessionManager.getInstance().get('test-alias', 'chat', sessionKey)).toBeNull();
 
     await new Dispatcher().dispatch(req);
 
-    expect(StickySessionManager.getInstance().get('test-alias', sessionKey)).toEqual({
+    expect(StickySessionManager.getInstance().get('test-alias', 'chat', sessionKey)).toEqual({
       provider: 'p1',
       model: 'model-1',
     });
@@ -162,7 +162,7 @@ describe('Dispatcher sticky_session write-back', () => {
 
     await new Dispatcher().dispatch(req);
 
-    expect(StickySessionManager.getInstance().get('test-alias', sessionKey)).toBeNull();
+    expect(StickySessionManager.getInstance().get('test-alias', 'chat', sessionKey)).toBeNull();
   });
 
   test('does NOT record for single-turn requests (no session key)', async () => {
@@ -194,7 +194,7 @@ describe('Dispatcher sticky_session write-back', () => {
     const sessionKey = StickySessionManager.computeSessionKey(req)!;
 
     // Seed sticky with the now-disabled target.
-    StickySessionManager.getInstance().set('test-alias', sessionKey, 'p1', 'model-1');
+    StickySessionManager.getInstance().set('test-alias', 'chat', sessionKey, 'p1', 'model-1');
 
     fetchMock.mockImplementation(async (url: any) => {
       // p1 should never be called — it's filtered before dispatch.
@@ -212,7 +212,7 @@ describe('Dispatcher sticky_session write-back', () => {
     expect(urls.some((u: string) => u.includes('p1.example.com'))).toBe(false);
 
     // Sticky entry was overwritten with the new winner.
-    expect(StickySessionManager.getInstance().get('test-alias', sessionKey)).toEqual({
+    expect(StickySessionManager.getInstance().get('test-alias', 'chat', sessionKey)).toEqual({
       provider: 'p2',
       model: 'model-2',
     });
@@ -225,7 +225,7 @@ describe('Dispatcher sticky_session write-back', () => {
     const sessionKey = StickySessionManager.computeSessionKey(req)!;
 
     // Seed sticky with p1 — but p1 will fail (retryable 500), failover goes to p2.
-    StickySessionManager.getInstance().set('test-alias', sessionKey, 'p1', 'model-1');
+    StickySessionManager.getInstance().set('test-alias', 'chat', sessionKey, 'p1', 'model-1');
 
     fetchMock
       .mockImplementationOnce(async () => errorResponse(500, 'p1 boom'))
@@ -233,7 +233,7 @@ describe('Dispatcher sticky_session write-back', () => {
 
     await new Dispatcher().dispatch(req);
 
-    expect(StickySessionManager.getInstance().get('test-alias', sessionKey)).toEqual({
+    expect(StickySessionManager.getInstance().get('test-alias', 'chat', sessionKey)).toEqual({
       provider: 'p2',
       model: 'model-2',
     });
@@ -250,7 +250,7 @@ describe('Dispatcher sticky_session write-back', () => {
 
     await new Dispatcher().dispatch(req);
 
-    expect(StickySessionManager.getInstance().get('test-alias', sessionKey)).toEqual({
+    expect(StickySessionManager.getInstance().get('test-alias', 'chat', sessionKey)).toEqual({
       provider: 'oauthClaude',
       model: 'claude-test',
     });

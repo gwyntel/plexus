@@ -57,23 +57,40 @@ The project uses separate Drizzle ORM config files for each database dialect:
 
 When running Drizzle Kit commands, specify the appropriate config file with `--config`.
 
-## Pi Assistant Prompt
+## OpenCode GitHub automation
 
-The system prompt for the `/pi` AI agent lives at **`.github/prompts/pi-assistant.md`**.
-Edit that file directly — do not put prompt text inside the workflow YAML.
+OpenCode provides automatic PR reviews and an interactive assistant:
 
-The file supports `{{dot.notation.path}}` placeholders that are substituted at runtime:
+- `.github/workflows/opencode-review.yml` reviews non-draft PRs, including PRs from forks, when
+  they are opened, updated, reopened, or marked ready for review. Reviews are read-only and focus
+  on correctness, bugs, security, error handling, tests, and maintainability. A minimal trusted
+  dispatcher forwards only the PR number and immutable head SHA to an isolated default-branch run.
+  That run generates an inert patch before model secrets are exposed. OpenCode can read only that
+  patch and cannot run commands, edit files, access the network, or inspect the runner environment.
+- On an issue, PR conversation, or inline PR comment, include `@opencode`, `/opencode`, or `/oc`
+  to ask a question, request an explanation, or explicitly request a code change. OpenCode reads
+  the full thread; inline comments also include file, line, and diff context.
+- For code changes requested on an issue, OpenCode creates a branch and PR. For requests on an
+  existing same-repository PR, it commits to that PR's branch rather than opening another PR.
+  Questions that do not require changes receive a comment only.
 
-- `{{context.payload.comment.body}}` — the triggering comment's text
-- `{{context.payload.issue.number}}` — issue/PR number
-- `{{context.actor}}` — the GitHub actor who triggered the run
-- `{{env.GITHUB_SHA}}` — any `GITHUB_*` / `RUNNER_*` runner environment variable
-- `{{env.INITIAL_COMMENT_ID}}` — a value passed explicitly via the step's `env:` block
+Interactive runs are restricted to trusted collaborators, and OpenCode's GitHub integration
+currently requires the caller to have `write` or `admin` repository permission. Automatic review
+skips draft PRs. Fork PRs are reviewed without executing or directly exposing secrets to their
+code. Interactive code changes still cannot be pushed to fork-owned PR branches with the
+repository `GITHUB_TOKEN`.
 
-Anything reachable from the [`@actions/github` context object](https://github.com/actions/toolkit/tree/main/packages/github)
-is available under `context.*` without any extra wiring. Values that come from
-previous step outputs (like `INITIAL_COMMENT_ID`) must be added to the `env:` block
-on the **Run Pi agent** step in `.github/workflows/pi-assistant.yml`.
+Both workflows require these existing Actions settings:
+
+- Secret `LLM_API_KEY`: API credential for the OpenAI-compatible model endpoint.
+- Secret `LLM_API_HOST`: base URL for that endpoint.
+- Variable `LLM_MODEL_ID`: model ID used by OpenCode.
+
+OpenCode uses the built-in `GITHUB_TOKEN`; no OpenCode GitHub App or additional GitHub token is
+required. Session sharing is disabled. After migration, the `PR_AGENT_MODEL_ID` repository
+variable can be retired manually. Do not remove `LLM_API_KEY`, `LLM_API_HOST`, or `LLM_MODEL_ID`:
+they remain in use, including by release-note automation. The `/pi` assistant no longer exists,
+but `mcowger/pi-action` remains in `.github/workflows/release.yml` solely to generate release notes.
 
 ## Code Style
 
@@ -168,12 +185,12 @@ existing resources are replaced rather than duplicated.
 
 | Category | Count | Notes |
 |---|---|---|
-| Providers | 7 | Local (Ollama, LM Studio, llama.cpp) + mock cloud (OpenAI, Anthropic, Gemini, OpenRouter) |
-| Quotas | 7 | Rolling, daily, weekly windows; requests and token limits |
-| Model aliases | 16 | chat, embeddings, speech, transcriptions, image types; multi-target failover aliases |
-| API keys | 14 | Unrestricted, quota-enforced, provider-restricted, model-restricted |
+| Providers | 11 | Frontier cloud providers (Kilocode, Wisgate, Neuralwatt, OpenRouter, Google, OpenAI, Anthropic, CC, CC-Sigma, OpenLimits, Ozore) |
+| Quotas | 2 | Daily, weekly budgets and limits |
+| Model aliases | 19 | Frontier model architectures (gpt-5.x, claude-4.5/5, gemini-3.5, deepseek-v4) for chat, embeddings, speech, transcriptions |
+| API keys | 4 | Default, OWUI, GithubKey, GHAKey |
 
-All provider URLs point at `localhost` — no real API keys are needed by default.
+All provider URLs are mapped to their real production API gateways, but with safe, redacted mock keys by default. No real secrets are checked into the codebase.
 
 #### Adding your own data
 

@@ -7,12 +7,12 @@ import { Providers } from './pages/Providers';
 import { Models } from './pages/Models';
 import { Keys } from './pages/Keys';
 import { Config } from './pages/Config';
-import { PiRegistry } from './pages/PiRegistry';
 import { SystemLogs } from './pages/SystemLogs';
 import { Debug } from './pages/Debug';
 import { Errors } from './pages/Errors';
 import { Quotas } from './pages/Quotas';
 import { McpPage } from './pages/Mcp';
+import { Playground } from './pages/Playground';
 import { Login } from './pages/Login';
 import { MyKey } from './pages/MyKey';
 import { AuthProvider, useAuth } from './contexts/AuthContext';
@@ -95,14 +95,6 @@ const AppRoutes = () => {
                   }
                 />
                 <Route
-                  path="/pi-registry"
-                  element={
-                    <ProtectedRoute requireAdmin>
-                      <PiRegistry />
-                    </ProtectedRoute>
-                  }
-                />
-                <Route
                   path="/system-logs"
                   element={
                     <ProtectedRoute requireAdmin>
@@ -123,6 +115,14 @@ const AppRoutes = () => {
                   element={
                     <ProtectedRoute requireAdmin>
                       <McpPage />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/playground"
+                  element={
+                    <ProtectedRoute requireAdmin>
+                      <Playground />
                     </ProtectedRoute>
                   }
                 />

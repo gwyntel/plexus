@@ -6,8 +6,10 @@ import {
   KeyConfigSchema,
   McpServerConfigSchema,
   CompactionConfigSchema,
+  normalizeKeyConfig,
 } from '../../config';
 import { ConfigService } from '../../services/config-service';
+import { DebugManager } from '../../services/debug-manager';
 import { isValidIpRule } from '../../utils/ip-match';
 import { getCheckerDefinitions } from '../../services/quota/checker-registry';
 import { UsageStorageService } from '../../services/usage-storage';
@@ -364,12 +366,17 @@ export async function registerConfigRoutes(
   // PUT — full create-or-replace with Zod validation
   fastify.put('/v0/management/keys/:name', async (request, reply) => {
     const { name } = request.params as { name: string };
+    if (name.includes('*')) {
+      return reply
+        .code(400)
+        .send({ error: "Key name cannot contain '*' (reserved for the shared-quota bucket)" });
+    }
     const result = KeyConfigSchema.safeParse(request.body);
     if (!result.success) {
       return reply.code(400).send({ error: 'Validation failed', details: result.error.issues });
     }
     try {
-      await configService.saveKey(name, result.data);
+      await configService.saveKey(name, normalizeKeyConfig(result.data));
       logger.debug(`API key '${name}' saved via API (PUT)`);
       return reply.send({ success: true, name });
     } catch (e: any) {
@@ -391,7 +398,10 @@ export async function registerConfigRoutes(
       if (!existing) {
         return reply.code(404).send({ error: `API key '${name}' not found` });
       }
-      const merged = { ...existing, ...body };
+      // Normalize a legacy `quota` field on the incoming body BEFORE merging,
+      // so a legacy-format PATCH replaces the key's `quotas` instead of being
+      // shadowed by the existing config's `quotas`.
+      const merged = { ...existing, ...normalizeKeyConfig(body) };
       const result = KeyConfigSchema.safeParse(merged);
       if (!result.success) {
         return reply.code(400).send({ error: 'Validation failed', details: result.error.issues });
@@ -433,6 +443,32 @@ export async function registerConfigRoutes(
     const body = request.body as Record<string, unknown> | null;
     if (!body || typeof body !== 'object' || Array.isArray(body)) {
       return reply.code(400).send({ error: 'Object body is required' });
+    }
+
+    // `default_quotas` is the one system setting with referential integrity:
+    // every name must exist in `user_quotas`, mirroring the membership checks
+    // on /quota/clear and /quota/recompute (the runtime only skip-and-warns on
+    // dangling names, silently enforcing nothing). `null` clears the setting.
+    if ('default_quotas' in body && body.default_quotas != null) {
+      const dq = body.default_quotas;
+      if (!Array.isArray(dq) || dq.some((v) => typeof v !== 'string')) {
+        return reply.code(400).send({
+          error: {
+            message: `'default_quotas' must be an array of quota names`,
+            type: 'invalid_request_error',
+          },
+        });
+      }
+      const defined = await configService.getRepository().getAllUserQuotas();
+      const unknown = dq.filter((name) => !Object.hasOwn(defined, name));
+      if (unknown.length > 0) {
+        return reply.code(400).send({
+          error: {
+            message: `Unknown quota name(s) in 'default_quotas': ${unknown.join(', ')}. Quotas must be defined in user_quotas first.`,
+            type: 'invalid_request_error',
+          },
+        });
+      }
     }
 
     try {
@@ -486,6 +522,42 @@ export async function registerConfigRoutes(
       return reply.send(updated);
     } catch (e: any) {
       logger.error('Failed to patch failover config', e);
+      return reply.code(500).send({ error: 'Internal server error' });
+    }
+  });
+
+  // ─── Capture Trace on Error ──────────────────────────────────────
+  // Persisted admin toggle. When enabled, DebugManager captures traces for
+  // every request and persists them only when a request writes an inference
+  // error or triggers a cooldown, even if global/per-key debug is off.
+
+  fastify.get('/v0/management/config/capture-trace-on-error', async (_request, reply) => {
+    try {
+      const enabled = await configService.getRepository().getCaptureTraceOnError();
+      return reply.send({ enabled });
+    } catch (e: any) {
+      return reply.code(500).send({ error: 'Internal server error' });
+    }
+  });
+
+  fastify.patch('/v0/management/config/capture-trace-on-error', async (request, reply) => {
+    const body = request.body as { enabled?: unknown } | null;
+    if (!body || typeof body !== 'object' || Array.isArray(body)) {
+      return reply.code(400).send({ error: 'Object body is required' });
+    }
+    if (typeof body.enabled !== 'boolean') {
+      return reply.code(400).send({ error: 'enabled must be a boolean' });
+    }
+
+    try {
+      // Persist to the database, then mirror to the in-memory DebugManager so
+      // the change takes effect immediately without a restart.
+      await configService.setSetting('debug.captureOnError', body.enabled);
+      DebugManager.getInstance().setCaptureOnError(body.enabled);
+      logger.debug('Capture-trace-on-error updated via API');
+      return reply.send({ enabled: body.enabled });
+    } catch (e: any) {
+      logger.error('Failed to patch capture-trace-on-error config', e);
       return reply.code(500).send({ error: 'Internal server error' });
     }
   });

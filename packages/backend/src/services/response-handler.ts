@@ -1,4 +1,5 @@
 import { FastifyReply, FastifyRequest } from 'fastify';
+import crypto from 'node:crypto';
 import { UnifiedChatResponse } from '../types/unified';
 import { Transformer } from '../types/transformer';
 import { UsageRecord } from '../types/usage';
@@ -16,8 +17,28 @@ import { StallInspector, type StallConfig } from './inspectors/stall-inspector';
 import { DEFAULT_GPU_PARAMS, DEFAULT_MODEL } from '@plexus/shared';
 import type { GpuParams } from '@plexus/shared';
 import { QuotaEnforcer } from '../services/quota/quota-enforcer';
-import { recordQuotaUsage } from '../services/quota/quota-middleware';
+import { recordQuotaUsage, buildQuotaHeaders } from '../services/quota/quota-middleware';
 import { CooldownManager } from './cooldown-manager';
+import { sanitizeHeaders } from '../utils/sanitize-headers';
+import { getApiBaseType } from '../utils/api-format';
+
+function getHeaderValue(request: FastifyRequest, headerName: string): string | undefined {
+  const value = request.headers?.[headerName];
+  return Array.isArray(value) ? value[0] : value;
+}
+
+function hasValidAdminKey(request: FastifyRequest): boolean {
+  const adminKey = process.env.ADMIN_KEY;
+  const providedKey = getHeaderValue(request, 'x-admin-key');
+  if (!adminKey || !providedKey) return false;
+  const adminKeyHash = crypto.createHash('sha256').update(adminKey).digest();
+  const providedKeyHash = crypto.createHash('sha256').update(providedKey).digest();
+  return crypto.timingSafeEqual(adminKeyHash, providedKeyHash);
+}
+
+function shouldIncludePlaygroundRouting(request: FastifyRequest): boolean {
+  return getHeaderValue(request, 'x-plexus-playground') === 'true' && hasValidAdminKey(request);
+}
 /**
  * handleResponse
  *
@@ -61,6 +82,12 @@ export async function handleResponse(
   if (usageRecord.provider) {
     DebugManager.getInstance().setProviderForRequest(usageRecord.requestId!, usageRecord.provider);
   }
+  DebugManager.getInstance().setModelAliasForRequest(
+    usageRecord.requestId!,
+    usageRecord.canonicalModelName || usageRecord.incomingModelAlias || null,
+    originalRequest,
+    sanitizeHeaders((request.headers ?? {}) as any)
+  );
   usageRecord.attemptCount = unifiedResponse.plexus?.attemptCount || 1;
   usageRecord.retryHistory = unifiedResponse.plexus?.retryHistory || null;
   usageRecord.finalAttemptProvider =
@@ -73,7 +100,7 @@ export async function handleResponse(
       `${usageRecord.provider || 'unknown'}/${usageRecord.selectedModelName || unifiedResponse.model}`,
     ]);
 
-  let outgoingApiType = unifiedResponse.plexus?.apiType?.toLowerCase();
+  const outgoingApiType = unifiedResponse.plexus?.apiType?.toLowerCase();
   usageRecord.outgoingApiType = outgoingApiType?.toLocaleLowerCase();
   usageRecord.isStreamed = !!unifiedResponse.stream;
   usageRecord.isPassthrough = unifiedResponse.bypassTransformation;
@@ -81,10 +108,28 @@ export async function handleResponse(
   // Always return Plexus request ID so callers can trace the full story
   reply.header('x-request-id', usageRecord.requestId!);
 
+  // Quota headers (x-plexus-quota*) — works for both unary and streaming
+  // since headers are set before the reply is piped either way. Computed
+  // from the context checkQuotaMiddleware stashed on the raw request, and
+  // the FINAL attempt's resolved provider/model — already known at this
+  // point (set immediately above from unifiedResponse.plexus, which reflects
+  // the winning candidate after any failover).
+  const quotaContext = (request as any).quotaContext ?? null;
+  if (quotaContext) {
+    const quotaHeaders = buildQuotaHeaders(
+      quotaContext,
+      usageRecord.finalAttemptProvider || '',
+      usageRecord.finalAttemptModel || ''
+    );
+    for (const [headerName, headerValue] of Object.entries(quotaHeaders)) {
+      reply.header(headerName, headerValue);
+    }
+  }
+
   const pricing = unifiedResponse.plexus?.pricing;
   const providerDiscount = unifiedResponse.plexus?.providerDiscount;
   // Normalize the provider API type to our supported internal constants: 'chat', 'messages', 'gemini'
-  const providerApiType = (unifiedResponse.plexus?.apiType || 'chat').toLowerCase();
+  const providerApiType = getApiBaseType(unifiedResponse.plexus?.apiType || 'chat');
 
   // Enable ephemeral debug capture if token estimation is needed
   const debugManager = DebugManager.getInstance();
@@ -428,6 +473,13 @@ export async function handleResponse(
     return reply.send(pipeline);
   } else {
     // --- Scenario B: Non-Streaming (Unary) Response ---
+    const includePlaygroundRouting = shouldIncludePlaygroundRouting(request);
+    const playgroundRouting = includePlaygroundRouting
+      ? {
+          requestId: usageRecord.requestId,
+          ...unifiedResponse.plexus,
+        }
+      : undefined;
 
     // Remove internal plexus metadata before sending to client
     if (unifiedResponse.plexus) {
@@ -440,6 +492,9 @@ export async function handleResponse(
     } else {
       // Re-format the unified JSON body to match the client's expected API format
       responseBody = await clientTransformer.formatResponse(unifiedResponse);
+    }
+    if (playgroundRouting && responseBody && typeof responseBody === 'object') {
+      responseBody.plexus = playgroundRouting;
     }
 
     // Capture transformed response for debugging
@@ -566,10 +621,14 @@ async function finalizeUsage(
     );
   }
 
-  // Record quota usage after costs are calculated
+  // Record quota usage after costs are calculated — against the FINAL
+  // attempt's resolved provider/model, not necessarily the candidate that
+  // was selected before failover.
   if (quotaEnforcer && keyName) {
     await recordQuotaUsage(
       keyName,
+      usageRecord.finalAttemptProvider,
+      usageRecord.finalAttemptModel,
       {
         tokensInput: usageRecord.tokensInput,
         tokensOutput: usageRecord.tokensOutput,

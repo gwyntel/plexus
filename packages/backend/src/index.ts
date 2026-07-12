@@ -13,17 +13,6 @@ if (subcommand === 'rekey') {
   await new Promise(() => {}); // Block forever; process.exit above will terminate
 }
 
-if (subcommand === 'migrate-quota-snapshots') {
-  const { migrateQuotaSnapshotsMain } = await import('./cli/migrate-quota-snapshots');
-  migrateQuotaSnapshotsMain()
-    .then(() => process.exit(0))
-    .catch((err) => {
-      console.error('Quota snapshot migration failed:', err);
-      process.exit(1);
-    });
-  await new Promise(() => {});
-}
-
 if (subcommand === 'backup') {
   const { backupMain } = await import('./cli/backup');
   backupMain()
@@ -109,8 +98,15 @@ const fastify = Fastify({
 fastify.register(cors, {
   origin: '*',
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'x-api-key', 'x-admin-key', 'x-goog-api-key'],
-  exposedHeaders: ['Content-Type'],
+  allowedHeaders: [
+    'Content-Type',
+    'Authorization',
+    'x-api-key',
+    'x-admin-key',
+    'x-goog-api-key',
+    'x-client-request-id',
+  ],
+  exposedHeaders: ['Content-Type', 'x-request-id', 'x-client-request-id'],
 });
 
 // Enable multipart/form-data support for file uploads (audio transcriptions)
@@ -170,10 +166,10 @@ try {
   await configService.initialize();
   logger.debug('Configuration loaded from database');
 
-  // Register pi_ai_custom_providers with the piAiModels instance so custom
-  // providers can be dispatched directly by api type without remapping hacks.
-  const { registerCustomProvidersWithPiAi } = await import('./inference-v2/shared/pi-ai-utils');
-  await registerCustomProvidersWithPiAi();
+  // Restore the persisted "capture trace on error" toggle into DebugManager.
+  DebugManager.getInstance().setCaptureOnError(
+    await configService.getRepository().getCaptureTraceOnError()
+  );
 
   // One-time migration of legacy flat-format aliases to target groups.
   // TODO(#target-groups-cleanup): remove this after migration period.

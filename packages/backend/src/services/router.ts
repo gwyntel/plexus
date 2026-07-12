@@ -15,6 +15,7 @@ import { SelectorFactory } from './selectors/factory';
 import { EnrichedModelTarget } from './selectors/base';
 import { StickySessionManager } from './sticky-session-manager';
 import type { ModelArchitecture } from '@plexus/shared';
+import { isApiSubtype, normalizeApiAccessList } from '../utils/api-format';
 
 export interface RouteResult {
   provider: string;
@@ -193,21 +194,47 @@ async function filterGroupTargets(
     }
   }
 
-  // 4. API match filter
-  if (alias.priority === 'api_match' && incomingApiType) {
-    const normalizedIncoming = incomingApiType.toLowerCase();
-    const compatibleTargets = healthyTargets.filter((target) => {
+  const findApiCompatibleTargets = (
+    targets: ModelTarget[],
+    requestedApiType: string
+  ): ModelTarget[] => {
+    const normalizedIncoming = requestedApiType.toLowerCase();
+    return targets.filter((target) => {
       const providerConfig = config.providers[target.provider];
       if (!providerConfig) return false;
 
       const providerTypes = getProviderTypes(providerConfig);
-      let modelSpecificTypes: string[] | undefined;
+      let modelSpecificTypes: ModelProviderConfig['access_via'];
       if (!Array.isArray(providerConfig.models) && providerConfig.models) {
         modelSpecificTypes = providerConfig.models[target.model]?.access_via;
       }
-      const availableTypes = modelSpecificTypes || providerTypes;
+      const availableTypes =
+        modelSpecificTypes && modelSpecificTypes.length > 0
+          ? normalizeApiAccessList(modelSpecificTypes)
+          : providerTypes;
       return availableTypes.some((t) => t.toLowerCase() === normalizedIncoming);
     });
+  };
+
+  // 4. API match filter
+  //
+  // API subtypes are strict wire contracts. A target that only advertises the
+  // base API type (e.g. "responses") must not participate in selection for a
+  // subtype request (e.g. "responses:lite"), regardless of alias priority.
+  // Filtering here keeps selector and sticky-session ordering from pinning an
+  // incompatible target ahead of a compatible one.
+  if (incomingApiType && isApiSubtype(incomingApiType)) {
+    const compatibleTargets = findApiCompatibleTargets(healthyTargets, incomingApiType);
+
+    if (logModelName) {
+      logger.info(
+        `Router: Incoming API subtype '${incomingApiType}' narrowed ${healthyTargets.length} healthy targets to ${compatibleTargets.length} compatible targets.`
+      );
+    }
+
+    healthyTargets = compatibleTargets;
+  } else if (alias.priority === 'api_match' && incomingApiType) {
+    const compatibleTargets = findApiCompatibleTargets(healthyTargets, incomingApiType);
 
     if (compatibleTargets.length > 0) {
       if (logModelName) {
@@ -337,7 +364,11 @@ export class Router {
     // pick to position 0 if it's still a healthy candidate.
     let stickyPick: { provider: string; model: string } | null = null;
     if (alias.sticky_session && sessionKey) {
-      stickyPick = StickySessionManager.getInstance().get(canonicalModel, sessionKey);
+      stickyPick = StickySessionManager.getInstance().get(
+        canonicalModel,
+        incomingApiType || 'chat',
+        sessionKey
+      );
     }
 
     for (const group of alias.target_groups) {

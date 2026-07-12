@@ -186,106 +186,10 @@ export type MatchCondition = z.infer<typeof MatchConditionSchema>;
 export type ReasoningRewriteRule = z.infer<typeof ReasoningRewriteRuleSchema>;
 export type ReasoningRewriteOptions = z.infer<typeof ReasoningRewriteOptionsSchema>;
 
-// ─── pi-ai custom provider / model definitions (inference-v2) ─────────────────
-//
-// The beta (pi-ai) inference path resolves a pi-ai `Model` object for each
-// routed target. Most upstreams are in pi-ai's built-in registry, but two gaps
-// need filling without waiting for a pi-ai release:
-//
-//   1. Custom providers — a niche OpenAI/Anthropic/Gemini-compatible host that
-//      pi-ai doesn't know. We only need its wire `api` and optional `compat`
-//      overrides; everything else comes from the (inherited or custom) model.
-//
-//   2. Custom / inherited models — a model too new for the registry. Either
-//      `inherits` an existing registry model and deep-merges `overrides` (e.g.
-//      treat gpt-5.6 like gpt-5.5 with a bigger context window), or provides a
-//      full standalone spec.
-//
-// These are workspace-level registries (like user_quotas / mcp_servers),
-// reusable across any number of Plexus providers.
-
-/** pi-ai upstream wire API surfaces a custom provider/model can target. */
-const PiAiApiEnum = z.enum([
-  'openai-completions',
-  'openai-responses',
-  'openai-codex-responses',
-  'azure-openai-responses',
-  'anthropic-messages',
-  'google-generative-ai',
-  'google-generative-ai-vertex',
-]);
-
-/**
- * Custom pi-ai provider definition. Keyed by an arbitrary provider id that
- * Plexus providers reference via `pi_ai_provider`. `compat` is passed through
- * to pi-ai verbatim (OpenAI/Anthropic compat shape; validated loosely here).
- */
-export const PiAiCustomProviderSchema = z.object({
-  /** Upstream wire API this provider speaks. */
-  api: PiAiApiEnum,
-  /** Optional human label for the UI. */
-  display_name: z.string().optional(),
-  /** pi-ai compat overrides (OpenAICompletionsCompat / AnthropicMessagesCompat / …). */
-  compat: z.record(z.string(), z.any()).optional(),
+const ApiFormatSchema = z.object({
+  type: z.string().trim().min(1),
+  subtype: z.string().trim().min(1).optional(),
 });
-
-/** Pricing block in a custom model spec (per-million-token rates). */
-const PiAiModelCostSchema = z.object({
-  input: z.number().min(0).default(0),
-  output: z.number().min(0).default(0),
-  cacheRead: z.number().min(0).default(0),
-  cacheWrite: z.number().min(0).default(0),
-});
-
-/**
- * Custom pi-ai model definition. Keyed by an arbitrary model id that Plexus
- * provider-models reference via `pi_ai_model_id`.
- *
- * A model is scoped to a single custom provider via `provider` (the custom
- * provider id). Resolution only matches a custom model when its `provider`
- * equals the `pi_ai_provider` of the referencing Plexus provider.
- *
- * Two modes (a definition may use one or both — `inherits` first, then the
- * sibling fields deep-merge as overrides):
- *   - `inherits`: clone a registry model `{ provider, model_id }` as the base.
- *   - standalone: provide `api` + the model fields directly.
- */
-export const PiAiCustomModelSchema = z.object({
-  /**
-   * The custom pi-ai provider id this model belongs to. The model only
-   * resolves for Plexus providers whose `pi_ai_provider` equals this id.
-   */
-  provider: z.string().min(1),
-  /** Clone this registry model as the base, then deep-merge the fields below. */
-  inherits: z
-    .object({
-      provider: z.string().min(1),
-      model_id: z.string().min(1),
-    })
-    .optional(),
-  /** Required when not inheriting (the base has no api to borrow). */
-  api: PiAiApiEnum.optional(),
-  /** Display name override. */
-  name: z.string().optional(),
-  /** Context window (tokens). */
-  contextWindow: z.number().int().positive().optional(),
-  /** Max output tokens. */
-  maxTokens: z.number().int().positive().optional(),
-  /** Whether the model reasons. */
-  reasoning: z.boolean().optional(),
-  /** pi-ai thinking level map (effort → provider value; null = unsupported). */
-  thinkingLevelMap: z.record(z.string(), z.union([z.string(), z.null()])).optional(),
-  /** Accepted input modalities. */
-  input: z.array(z.enum(['text', 'image'])).optional(),
-  /** Per-million-token pricing. */
-  cost: PiAiModelCostSchema.optional(),
-  /** pi-ai compat overrides (deep-merged onto the inherited model's compat). */
-  compat: z.record(z.string(), z.any()).optional(),
-});
-
-export type PiAiApi = z.infer<typeof PiAiApiEnum>;
-export type PiAiCustomProvider = z.infer<typeof PiAiCustomProviderSchema>;
-export type PiAiCustomModel = z.infer<typeof PiAiCustomModelSchema>;
 
 const ModelProviderConfigSchema = z.object({
   pricing: PricingSchema.default({
@@ -293,10 +197,11 @@ const ModelProviderConfigSchema = z.object({
     input: 0,
     output: 0,
   }),
-  access_via: z.array(z.string()).optional(),
+  access_via: z.array(z.union([z.string().trim().min(1), ApiFormatSchema])).optional(),
   type: z.enum(['text', 'embeddings', 'transcriptions', 'speech', 'image']).optional(),
   extraBody: z.record(z.string(), z.any()).optional(),
   adapter: AdapterConfigSchema,
+  auto_compat: z.boolean().optional(),
   maxConcurrency: z.number().int().positive().nullable().optional(),
   pi_ai_model_id: z.string().optional(),
 });
@@ -749,6 +654,7 @@ export const ProviderConfigSchema = z
     gpu_power_draw_watts: z.number().positive().optional(),
     geminiThinkingEnabled: z.boolean().optional(),
     adapter: AdapterConfigSchema,
+    auto_compat: z.boolean().optional(),
     timeoutMs: z.number().int().positive().optional(),
     maxConcurrency: z.number().int().positive().nullable().optional(),
     // Per-provider stall detection overrides (null = use global setting)
@@ -792,6 +698,23 @@ const ModelTargetGroupSchema = z.object({
   targets: z.array(ModelTargetSchema),
 });
 
+// Shared scope/limit fields applied to every quota-type union member below:
+//  - allowed*/excluded* restrict which provider/model pairs the quota counts
+//    against (see services/scope-match.ts for matching semantics; all-empty
+//    scope means "applies to everything").
+//  - shared marks the quota as a single pooled bucket across every key that
+//    references it (vs. one independent counter per key).
+//  - warnAt is an optional early-warning threshold, expressed as a fraction
+//    of `limit` in (0, 1) exclusive (e.g. 0.8 = warn at 80% usage).
+const QuotaScopeFields = {
+  allowedProviders: z.array(z.string()).optional(),
+  excludedProviders: z.array(z.string()).optional(),
+  allowedModels: z.array(z.string()).optional(),
+  excludedModels: z.array(z.string()).optional(),
+  shared: z.boolean().optional(),
+  warnAt: z.number().gt(0).lt(1).optional(),
+};
+
 // Quota definition schemas for user quota enforcement
 export const QuotaDefinitionSchema = z.discriminatedUnion('type', [
   z.object({
@@ -799,21 +722,25 @@ export const QuotaDefinitionSchema = z.discriminatedUnion('type', [
     limitType: z.enum(['requests', 'tokens', 'cost']),
     limit: z.number().min(1),
     duration: z.string().min(1), // e.g., "1h", "30m", "1d"
+    ...QuotaScopeFields,
   }),
   z.object({
     type: z.literal('daily'),
     limitType: z.enum(['requests', 'tokens', 'cost']),
     limit: z.number().min(1),
+    ...QuotaScopeFields,
   }),
   z.object({
     type: z.literal('weekly'),
     limitType: z.enum(['requests', 'tokens', 'cost']),
     limit: z.number().min(1),
+    ...QuotaScopeFields,
   }),
   z.object({
     type: z.literal('monthly'),
     limitType: z.enum(['requests', 'tokens', 'cost']),
     limit: z.number().min(1),
+    ...QuotaScopeFields,
   }),
 ]);
 
@@ -837,12 +764,21 @@ const ModelBehaviorSchema = z.discriminatedUnion('type', [StripAdaptiveThinkingB
 // `overrides` lets users override individual fields per alias. Overridden
 // fields win over catalog values; untouched fields still track the catalog.
 // When `source === 'custom'`, all data comes from overrides (no catalog lookup).
+const MetadataPricingTierSchema = z.object({
+  input_tokens_above: z.number().int().nonnegative(),
+  prompt: z.string().optional(),
+  completion: z.string().optional(),
+  input_cache_read: z.string().optional(),
+  input_cache_write: z.string().optional(),
+});
+
 const MetadataPricingOverridesSchema = z
   .object({
     prompt: z.string().optional(),
     completion: z.string().optional(),
     input_cache_read: z.string().optional(),
     input_cache_write: z.string().optional(),
+    tiers: z.array(MetadataPricingTierSchema).optional(),
   })
   .partial();
 
@@ -872,6 +808,13 @@ const MetadataOverridesSchema = z.object({
 });
 
 const ModelMetadataSchema = z.discriminatedUnion('source', [
+  z.object({
+    source: z.literal('auto'),
+    overrides: MetadataOverridesSchema.optional(),
+  }),
+  z.object({
+    source: z.literal('disabled'),
+  }),
   z.object({
     source: z.literal('openrouter'),
     // Path within the source catalog (e.g., "openai/gpt-4.1-nano")
@@ -919,8 +862,8 @@ export const ModelConfigSchema = z
     // in the alias targets). Tracked in-memory only; see
     // services/sticky-session-manager.ts.
     sticky_session: z.boolean().default(true),
-    // Advertised in GET /v1/models to inform clients of the preferred API surface(s)
-    // for this alias, even if plexus can translate between them.
+    // Advertised in GET /v1/models to inform clients of the preferred API surface(s).
+    // When omitted for text aliases, the model family determines the default.
     preferred_api: z
       .array(z.enum(['chat_completions', 'messages', 'gemini', 'responses']))
       .optional(),
@@ -977,15 +920,29 @@ export type StripAdaptiveThinkingBehavior = z.infer<typeof StripAdaptiveThinking
 export type ModelMetadata = z.infer<typeof ModelMetadataSchema>;
 export type MetadataOverrides = z.infer<typeof MetadataOverridesSchema>;
 
+// NOTE: intentionally a plain z.object (no `.transform`). A `.transform`
+// turns this into a ZodEffects whose inferred output makes `quotas` a
+// REQUIRED property (always present on the returned object literal, even
+// when `undefined`) — that ripples into every object literal typed against
+// `KeyConfig` / `PlexusConfig['keys']` across the codebase (dozens of test
+// fixtures construct `{ secret, comment }` etc. without `quotas`), which
+// fails typecheck. Keeping `quotas` a genuinely optional schema field avoids
+// that, at the cost of normalization being explicit (via
+// `normalizeKeyConfig` below) rather than automatic at every parse.
 export const KeyConfigSchema = z.object({
   secret: z.string(),
   comment: z.string().optional(),
-  quota: z.string().optional(), // References a quota definition name
+  // Deprecated: single quota-definition reference. Still accepted on input
+  // (indefinitely) for backward compat. Not auto-normalized by this schema —
+  // callers must run parsed/merged data through `normalizeKeyConfig` (see
+  // below) at the parse boundary, and should read `quotas`, never `quota`.
+  quota: z.string().optional(),
+  // References zero or more quota-definition names (see QuotaDefinitionSchema).
+  quotas: z.array(z.string().min(1)).optional(),
   allowedModels: z.array(z.string().min(1)).optional(),
   allowedProviders: z.array(z.string().min(1)).optional(),
   excludedModels: z.array(z.string().min(1)).optional(),
   excludedProviders: z.array(z.string().min(1)).optional(),
-  beta: z.boolean().optional(),
   allowedIps: z
     .array(
       z.string().min(1).refine(isValidIpRule, {
@@ -995,6 +952,24 @@ export const KeyConfigSchema = z.object({
     )
     .optional(),
 });
+
+/**
+ * Normalize a legacy `quota` field into `quotas`. Explicit `quotas` (even an
+ * empty array) always wins; `quota` is only used as a fallback when `quotas`
+ * is entirely absent. Returns a new object; does not mutate `data`.
+ *
+ * Used at key-config parse boundaries (PUT body after validation, PATCH body
+ * BEFORE the shallow merge with the existing stored config — merging first
+ * would let a stale `quotas` already on `existing` shadow a caller's legacy
+ * `quota` in the patch body).
+ */
+export function normalizeKeyConfig<T extends { quota?: unknown; quotas?: unknown }>(data: T): T {
+  if (data.quotas !== undefined) return data;
+  if (typeof data.quota === 'string' && data.quota.length > 0) {
+    return { ...data, quotas: [data.quota] };
+  }
+  return data;
+}
 
 const QuotaConfigSchema = z.object({
   id: z.string(),
@@ -1086,9 +1061,9 @@ const RawPlexusConfigSchema = z
     mcpOAuth: McpOAuthConfigSchema.optional(),
     mcp_servers: z.record(z.string(), McpServerConfigSchema).optional(),
     user_quotas: z.record(z.string(), QuotaDefinitionSchema).optional(),
-    // Workspace-level pi-ai custom provider / model registries (inference-v2).
-    pi_ai_custom_providers: z.record(z.string(), PiAiCustomProviderSchema).optional(),
-    pi_ai_custom_models: z.record(z.string(), PiAiCustomModelSchema).optional(),
+    // Applied to keys with NO quotas assigned (`quotas` absent/empty). Non-stacking:
+    // a key either uses its own `quotas` or falls back to this list, never both.
+    default_quotas: z.array(z.string()).optional(),
     compaction: CompactionOverrideSchema.optional(),
   })
   .passthrough();
@@ -1239,12 +1214,10 @@ function hydrateConfig(config: z.infer<typeof RawPlexusConfigSchema>): PlexusCon
   }
 
   // Startup registry validation: warn (non-fatally) for any configured
-  // (pi_ai_provider, pi_ai_model_id) pair that resolves neither via the custom
-  // registries nor the built-in pi-ai registry. getModel() returns undefined
-  // for unknown pairs; this is a warning (not fatal) so new/unreleased model IDs
-  // or in-progress custom defs don't prevent Plexus from starting.
-  const customModels = config.pi_ai_custom_models ?? {};
-  const customProviders = config.pi_ai_custom_providers ?? {};
+  // (pi_ai_provider, pi_ai_model_id) pair that does not resolve via the
+  // built-in pi-ai registry. getModel() returns undefined for unknown pairs;
+  // this is a warning (not fatal) so renamed registry entries do not prevent
+  // Plexus from starting.
   // getModel may return undefined (pi-ai 0.79.x) or throw (older versions /
   // mocked) for unknown pairs — treat both as "not found".
   const registryHas = (provider: string, modelId: string): boolean => {
@@ -1254,19 +1227,8 @@ function hydrateConfig(config: z.infer<typeof RawPlexusConfigSchema>): PlexusCon
       return false;
     }
   };
-  const piPairResolves = (provider: string, modelId: string): boolean => {
-    // Custom model: resolves if standalone (has api) or its inheritance base exists.
-    const compoundKey = modelId.includes(':') ? modelId : `${provider}:${modelId}`;
-    const cm = customModels[compoundKey] ?? customModels[modelId];
-    if (cm && cm.provider === provider) {
-      if (cm.inherits) return registryHas(cm.inherits.provider, cm.inherits.model_id);
-      return cm.api != null;
-    }
-    // Custom provider: resolves (supplies api/compat; base may be a skeleton).
-    if (customProviders[provider]) return true;
-    // Built-in registry.
-    return registryHas(provider, modelId);
-  };
+  const piPairResolves = (provider: string, modelId: string): boolean =>
+    registryHas(provider, modelId);
   for (const [providerId, providerConfig] of Object.entries(resolvedProviders)) {
     const pc = providerConfig as ProviderConfig;
     if (!pc.pi_ai_provider) continue;
@@ -1280,16 +1242,26 @@ function hydrateConfig(config: z.infer<typeof RawPlexusConfigSchema>): PlexusCon
         logger.warn(
           `pi-ai registry: provider "${providerId}" model "${modelName}" references ` +
             `pi_ai_provider="${pc.pi_ai_provider}" pi_ai_model_id="${piAiModelId}" ` +
-            `which resolves via neither the custom registries nor the pi-ai model ` +
-            `registry. The beta inference path will skip this provider/model combination.`
+            `which does not resolve via the pi-ai model registry. Registry-aware ` +
+            `compatibility mapping will no-op for this provider/model combination.`
         );
       }
     }
   }
 
+  // Normalize legacy `quota` → `quotas` for every key at load time (explicit
+  // `quotas` always wins — see normalizeKeyConfig).
+  const normalizedKeys = Object.fromEntries(
+    Object.entries(config.keys).map(([keyName, keyConfig]) => [
+      keyName,
+      normalizeKeyConfig(keyConfig),
+    ])
+  );
+
   return {
     ...config,
     providers: resolvedProviders,
+    keys: normalizedKeys,
     failover: FailoverPolicySchema.parse(config.failover ?? {}),
     cooldown: CooldownPolicySchema.parse(config.cooldown ?? {}),
     quotas: buildProviderQuotaConfigs(config),

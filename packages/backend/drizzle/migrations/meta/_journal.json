@@ -383,8 +383,22 @@
     {
       "idx": 54,
       "version": "6",
-      "when": 1782939445246,
-      "tag": "0054_auto_schema_update",
+      "when": 1783053909476,
+      "tag": "0054_add_scoped_multi_quotas",
+      "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "6",
+      "when": 1783309798440,
+      "tag": "0055_add_auto_compat",
+      "breakpoints": true
+    },
+    {
+      "idx": 56,
+      "version": "6",
+      "when": 1783698913287,
+      "tag": "0056_add_client_request_id",
       "breakpoints": true
     }
   ]

@@ -9,9 +9,11 @@ import {
   UnifiedImageGenerationResponse,
   UnifiedImageEditRequest,
   UnifiedImageEditResponse,
-  KeyAccessPolicy,
 } from '../types/unified';
 import { Router } from './router';
+import { applyKeyAccessPolicy } from './key-access-policy';
+import { QuotaEnforcer } from './quota/quota-enforcer';
+import { buildQuotaExceededError } from './quota/quota-middleware';
 import { TransformerFactory } from './transformer-factory';
 import { logger } from '../utils/logger';
 import { QUOTA_ERROR_PATTERNS } from '../utils/constants';
@@ -27,6 +29,11 @@ import { EmbeddingsTransformerFactory } from './embeddings-transformer-factory';
 import { resolveAdapters } from './adapter-resolver';
 import type { ResolvedAdapter } from '../types/provider-adapter';
 import { getBuiltinModels } from '@earendil-works/pi-ai/providers/all';
+import { buildGenerationOptions, resolvePiAiModel } from './pi-ai/registry';
+import type { GenerationIntent } from './pi-ai/generation';
+import { normalizeVerbosity } from './pi-ai/generation';
+import type { ReasoningIntent, ReasoningVisibility } from './pi-ai/reasoning';
+import { normalizeEffort, normalizeVisibility } from './pi-ai/reasoning';
 import type { StallConfig } from './inspectors/stall-inspector';
 import { getGlobalStallConfig, resolveStallConfig } from '../utils/stall';
 import { VisionDescriptorService } from './vision-descriptor-service';
@@ -39,6 +46,7 @@ import { resolveModelParams, DEFAULT_GPU_PARAMS } from '@plexus/shared';
 import type { GpuParams, ModelParams } from '@plexus/shared';
 import { ConcurrencyTracker } from './concurrency-tracker';
 import { sanitizeHeaders } from '../utils/sanitize-headers';
+import { getApiBaseType, isApiSubtype, normalizeApiAccessList } from '../utils/api-format';
 
 interface RetryAttemptRecord {
   index: number;
@@ -63,6 +71,8 @@ interface RetryHistoryLikeEntry {
 
 type ResolveTimeoutMs = (timeoutMs?: number | null) => number;
 
+const PROVIDER_ERROR_SUMMARY_LIMIT = 500;
+
 /**
  * Request-level API types (e.g. embeddings, transcriptions) share base URLs
  * with their provider-level counterparts (e.g. chat, gemini). This map defines
@@ -74,6 +84,344 @@ const API_TYPE_ALIASES: Record<string, string[]> = {
   speech: ['chat', 'gemini'],
   images: ['chat', 'gemini'],
 };
+
+function hasOwn(value: Record<string, any>, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(value, key);
+}
+
+function stripUnsupportedResponsesCustomToolCallNamespaces(payload: any): any {
+  if (!payload || typeof payload !== 'object' || !Array.isArray(payload.input)) {
+    return payload;
+  }
+
+  let changed = false;
+  const input = payload.input.map((item: any) => {
+    if (
+      item &&
+      typeof item === 'object' &&
+      item.type === 'custom_tool_call' &&
+      hasOwn(item, 'namespace')
+    ) {
+      const { namespace: _namespace, ...rest } = item;
+      changed = true;
+      return rest;
+    }
+    return item;
+  });
+
+  return changed ? { ...payload, input } : payload;
+}
+
+function normalizeReasoningFromUnified(
+  reasoning: UnifiedChatRequest['reasoning']
+): ReasoningIntent {
+  const effort = normalizeEffort(reasoning?.effort);
+  const enabled = effort === 'off' ? false : reasoning?.enabled;
+  const visibility = normalizeVisibility(reasoning?.summary);
+  return {
+    ...(effort && effort !== 'off' ? { effort } : {}),
+    ...(reasoning?.max_tokens != null ? { budgetTokens: reasoning.max_tokens } : {}),
+    ...(enabled !== undefined ? { enabled } : {}),
+    ...(visibility ? { visibility } : {}),
+    ...(reasoning?.summary ? { summaryDetail: reasoning.summary } : {}),
+    source: 'client',
+  };
+}
+
+function extractReasoningIntent(payload: any, request: UnifiedChatRequest): ReasoningIntent {
+  const source = payload && typeof payload === 'object' ? payload : {};
+  const incomingApiType = request.incomingApiType?.toLowerCase();
+
+  if (incomingApiType === 'messages' && source.thinking && typeof source.thinking === 'object') {
+    const thinking = source.thinking;
+    const type = typeof thinking.type === 'string' ? thinking.type.toLowerCase() : undefined;
+    const display = thinking.display;
+    return {
+      ...(type === 'disabled' ? { enabled: false } : { enabled: true }),
+      ...(type === 'adaptive' ? { adaptive: true } : {}),
+      ...(typeof thinking.budget_tokens === 'number'
+        ? { budgetTokens: thinking.budget_tokens }
+        : {}),
+      ...(normalizeVisibility(display) ? { visibility: normalizeVisibility(display) } : {}),
+      source: 'client',
+    };
+  }
+
+  const rawReasoning = source.reasoning ?? request.reasoning;
+  if (rawReasoning && typeof rawReasoning === 'object') {
+    const effort = normalizeEffort((rawReasoning as any).effort);
+    const summaryDetail =
+      typeof (rawReasoning as any).summary === 'string' ? (rawReasoning as any).summary : undefined;
+    const visibility = normalizeVisibility(summaryDetail);
+    return {
+      ...(effort === 'off' ? {} : effort ? { effort } : {}),
+      ...(effort === 'off' ? { enabled: false } : {}),
+      ...(typeof (rawReasoning as any).max_tokens === 'number'
+        ? { budgetTokens: (rawReasoning as any).max_tokens }
+        : {}),
+      ...((rawReasoning as any).enabled !== undefined
+        ? { enabled: (rawReasoning as any).enabled === true }
+        : {}),
+      ...(visibility ? { visibility } : {}),
+      ...(summaryDetail ? { summaryDetail } : {}),
+      source: 'client',
+    };
+  }
+
+  const chatEffort = normalizeEffort(source.reasoning_effort);
+  if (chatEffort) {
+    return chatEffort === 'off'
+      ? { enabled: false, source: 'client' }
+      : { effort: chatEffort, enabled: true, source: 'client' };
+  }
+
+  const thinkingConfig = source.generationConfig?.thinkingConfig;
+  if (thinkingConfig && typeof thinkingConfig === 'object') {
+    const effort = normalizeEffort(thinkingConfig.thinkingLevel);
+    const visibility: ReasoningVisibility | undefined =
+      thinkingConfig.includeThoughts === true ? 'summary' : undefined;
+    return {
+      ...(effort && effort !== 'off' ? { effort } : {}),
+      ...(typeof thinkingConfig.thinkingBudget === 'number'
+        ? { budgetTokens: thinkingConfig.thinkingBudget }
+        : {}),
+      ...(thinkingConfig.thinkingBudget === 0 ? { enabled: false } : { enabled: true }),
+      ...(visibility ? { visibility } : {}),
+      source: 'client',
+    };
+  }
+
+  return normalizeReasoningFromUnified(request.reasoning);
+}
+
+function extractGenerationIntent(payload: any, request: UnifiedChatRequest): GenerationIntent {
+  const source = payload && typeof payload === 'object' ? payload : {};
+  const maxTokens =
+    source.max_output_tokens ??
+    source.max_tokens ??
+    source.max_completion_tokens ??
+    source.generationConfig?.maxOutputTokens ??
+    request.max_tokens;
+  const temperature =
+    source.temperature ?? source.generationConfig?.temperature ?? request.temperature;
+  const verbosity = normalizeVerbosity(source.text?.verbosity ?? request.text?.verbosity);
+  const serviceTier = source.service_tier ?? request.originalBody?.service_tier;
+
+  return {
+    reasoning: extractReasoningIntent(source, request),
+    ...(typeof maxTokens === 'number' ? { maxTokens } : {}),
+    ...(typeof temperature === 'number' ? { temperature } : {}),
+    ...(verbosity ? { verbosity } : {}),
+    ...(typeof serviceTier === 'string' ? { serviceTier } : {}),
+  };
+}
+
+function mappedThinkingValue(model: any, effort: string | undefined): string | undefined {
+  if (!effort) return undefined;
+  const mapped = model.thinkingLevelMap?.[effort];
+  return typeof mapped === 'string' ? mapped : effort;
+}
+
+function mappedOffValue(model: any): string | undefined {
+  const off = model.thinkingLevelMap?.off;
+  return typeof off === 'string' ? off : undefined;
+}
+
+function shouldDropTemperature(intent: GenerationIntent, options: Record<string, any>): boolean {
+  return intent.temperature != null && !hasOwn(options, 'temperature');
+}
+
+function projectOpenAiCompletionsAutoCompat(
+  payload: Record<string, any>,
+  model: any,
+  intent: GenerationIntent,
+  options: Record<string, any>
+): Record<string, any> {
+  const next = { ...payload };
+  const compat = model.compat ?? {};
+
+  if (options.maxTokens != null) {
+    if (compat.maxTokensField === 'max_completion_tokens') {
+      delete next.max_tokens;
+      next.max_completion_tokens = options.maxTokens;
+    } else {
+      next.max_tokens = options.maxTokens;
+    }
+  }
+  if (hasOwn(options, 'temperature')) next.temperature = options.temperature;
+  else if (shouldDropTemperature(intent, options)) delete next.temperature;
+
+  if (!model.reasoning) return next;
+
+  const reasoningEffort =
+    typeof options.reasoningEffort === 'string' ? options.reasoningEffort : undefined;
+  const enabled = reasoningEffort != null;
+  const explicitOff = options.reasoning === 'off' || intent.reasoning.enabled === false;
+  if (!enabled && !explicitOff) return next;
+
+  const mapped = mappedThinkingValue(model, reasoningEffort);
+  const off = mappedOffValue(model);
+
+  switch (compat.thinkingFormat) {
+    case 'zai':
+      next.thinking = enabled ? { type: 'enabled', clear_thinking: false } : { type: 'disabled' };
+      if (enabled && compat.supportsReasoningEffort && mapped) next.reasoning_effort = mapped;
+      break;
+    case 'qwen':
+      next.enable_thinking = enabled;
+      break;
+    case 'qwen-chat-template':
+      next.chat_template_kwargs = {
+        ...(next.chat_template_kwargs ?? {}),
+        enable_thinking: enabled,
+        preserve_thinking: true,
+      };
+      break;
+    case 'chat-template':
+      next.chat_template_kwargs = {
+        ...(next.chat_template_kwargs ?? {}),
+        ...resolveChatTemplateKwargs(model, options),
+      };
+      break;
+    case 'deepseek':
+      next.thinking = enabled ? { type: 'enabled' } : { type: 'disabled' };
+      if (enabled && compat.supportsReasoningEffort && mapped) next.reasoning_effort = mapped;
+      break;
+    case 'openrouter':
+      next.reasoning = enabled ? { effort: mapped } : { effort: off ?? 'none' };
+      break;
+    case 'ant-ling':
+      if (enabled && mapped) next.reasoning = { effort: mapped };
+      break;
+    case 'together':
+      next.reasoning = { enabled };
+      if (enabled && compat.supportsReasoningEffort && mapped) next.reasoning_effort = mapped;
+      break;
+    case 'string-thinking':
+      next.thinking = enabled ? mapped : (off ?? 'none');
+      break;
+    default:
+      if (enabled && compat.supportsReasoningEffort && mapped) {
+        next.reasoning_effort = mapped;
+      } else if (!enabled && compat.supportsReasoningEffort && off) {
+        next.reasoning_effort = off;
+      }
+      break;
+  }
+
+  return next;
+}
+
+function resolveChatTemplateKwargs(model: any, options: Record<string, any>): Record<string, any> {
+  const kwargs: Record<string, any> = {};
+  const template = model.compat?.chatTemplateKwargs;
+  if (!template || typeof template !== 'object') return kwargs;
+
+  for (const [key, value] of Object.entries(template)) {
+    const resolved = resolveChatTemplateKwargValue(model, options, value);
+    if (resolved !== undefined) kwargs[key] = resolved;
+  }
+  return kwargs;
+}
+
+function resolveChatTemplateKwargValue(model: any, options: Record<string, any>, value: unknown) {
+  if (typeof value !== 'object' || value === null) return value;
+  const config = value as { $var?: string; omitWhenOff?: boolean };
+  const reasoningEffort =
+    typeof options.reasoningEffort === 'string' ? options.reasoningEffort : undefined;
+  if (!reasoningEffort && config.omitWhenOff) return undefined;
+  if (config.$var === 'thinking.enabled') return !!reasoningEffort;
+  const mapped = reasoningEffort
+    ? model.thinkingLevelMap?.[reasoningEffort]
+    : model.thinkingLevelMap?.off;
+  return mapped === undefined ? reasoningEffort : typeof mapped === 'string' ? mapped : undefined;
+}
+
+function projectResponsesAutoCompat(
+  payload: Record<string, any>,
+  model: any,
+  intent: GenerationIntent,
+  options: Record<string, any>
+): Record<string, any> {
+  const next = { ...payload };
+  if (options.maxTokens != null) next.max_output_tokens = options.maxTokens;
+  if (hasOwn(options, 'temperature')) next.temperature = options.temperature;
+  else if (shouldDropTemperature(intent, options)) delete next.temperature;
+  if (options.serviceTier !== undefined) next.service_tier = options.serviceTier;
+  if (options.textVerbosity !== undefined) {
+    next.text = { ...(next.text ?? {}), verbosity: options.textVerbosity };
+  }
+  if (options.reasoningEffort || options.reasoningSummary) {
+    next.reasoning = {
+      ...(next.reasoning ?? {}),
+      effort: mappedThinkingValue(model, options.reasoningEffort) ?? 'medium',
+      summary: options.reasoningSummary ?? next.reasoning?.summary ?? 'auto',
+    };
+    next.include = Array.from(
+      new Set([...(Array.isArray(next.include) ? next.include : []), 'reasoning.encrypted_content'])
+    );
+  } else if (options.reasoning === 'off') {
+    next.reasoning = { ...(next.reasoning ?? {}), effort: mappedOffValue(model) ?? 'none' };
+  }
+  return next;
+}
+
+function projectAnthropicAutoCompat(
+  payload: Record<string, any>,
+  model: any,
+  intent: GenerationIntent,
+  options: Record<string, any>
+): Record<string, any> {
+  const next = { ...payload };
+  if (options.maxTokens != null) next.max_tokens = options.maxTokens;
+  if (hasOwn(options, 'temperature')) next.temperature = options.temperature;
+  else if (shouldDropTemperature(intent, options)) delete next.temperature;
+
+  if (options.thinkingEnabled === true) {
+    const display = options.thinkingDisplay ?? 'summarized';
+    if (model.compat?.forceAdaptiveThinking === true) {
+      next.thinking = { type: 'adaptive', display };
+      if (options.effort) {
+        next.output_config = { ...(next.output_config ?? {}), effort: options.effort };
+      }
+    } else {
+      next.thinking = {
+        type: 'enabled',
+        budget_tokens: options.thinkingBudgetTokens ?? 1024,
+        display,
+      };
+    }
+  } else if (options.thinkingEnabled === false) {
+    next.thinking = { type: 'disabled' };
+  }
+
+  return next;
+}
+
+function projectGeminiAutoCompat(
+  payload: Record<string, any>,
+  intent: GenerationIntent,
+  options: Record<string, any>
+): Record<string, any> {
+  const next = { ...payload, generationConfig: { ...(payload.generationConfig ?? {}) } };
+  if (options.maxTokens != null) next.generationConfig.maxOutputTokens = options.maxTokens;
+  if (hasOwn(options, 'temperature')) next.generationConfig.temperature = options.temperature;
+  else if (shouldDropTemperature(intent, options)) delete next.generationConfig.temperature;
+
+  if (options.thinking?.enabled === true) {
+    next.generationConfig.thinkingConfig = {
+      includeThoughts: options.thinking.includeThoughts !== false,
+      ...(options.thinking.level !== undefined ? { thinkingLevel: options.thinking.level } : {}),
+      ...(options.thinking.budgetTokens !== undefined
+        ? { thinkingBudget: options.thinking.budgetTokens }
+        : {}),
+    };
+  } else if (options.thinking?.enabled === false) {
+    next.generationConfig.thinkingConfig = { thinkingBudget: 0 };
+  }
+
+  return next;
+}
 
 /**
  * Strips trailing /v1beta* path segments from Gemini base URLs.
@@ -88,6 +436,23 @@ function stripTrailingApiVersion(url: string): string {
 
 export class Dispatcher {
   private usageStorage?: UsageStorageService;
+
+  private compactProviderErrorSummary(value: unknown): string {
+    const raw = typeof value === 'string' ? value : value == null ? '' : String(value);
+    const text = raw.trim() || 'Unknown provider error';
+    const chars = Array.from(text);
+
+    if (chars.length <= PROVIDER_ERROR_SUMMARY_LIMIT) {
+      return text;
+    }
+
+    return `${chars.slice(0, PROVIDER_ERROR_SUMMARY_LIMIT).join('')}... [truncated ${chars.length - PROVIDER_ERROR_SUMMARY_LIMIT} chars]`;
+  }
+
+  private formatClientProviderError(statusCode: number, errorText: string): string {
+    const reason = this.extractFailureReason(errorText) || errorText || 'Unknown provider error';
+    return `Provider failed: ${statusCode} ${this.compactProviderErrorSummary(reason)}`;
+  }
 
   private extractFailureReason(value: unknown): string | undefined {
     if (typeof value === 'string') {
@@ -169,10 +534,10 @@ export class Dispatcher {
     const statusCode = error?.routingContext?.statusCode ?? error?.status ?? error?.statusCode;
 
     if (includeStatusCode && typeof statusCode === 'number') {
-      return `HTTP ${statusCode}: ${extracted}`.slice(0, 500);
+      return this.compactProviderErrorSummary(`HTTP ${statusCode}: ${extracted}`);
     }
 
-    return String(extracted).slice(0, 500);
+    return this.compactProviderErrorSummary(extracted);
   }
 
   private async recordAttemptMetric(
@@ -254,6 +619,7 @@ export class Dispatcher {
     if (!aliasConfig?.sticky_session) return;
     StickySessionManager.getInstance().set(
       route.canonicalModel,
+      request.incomingApiType || 'chat',
       sessionKey,
       route.provider,
       route.model
@@ -294,11 +660,18 @@ export class Dispatcher {
       throw new Error(`No route candidates found for model '${request.model}'`);
     }
 
-    candidates = this.applyKeyAccessPolicy(request, candidates, request.incomingApiType || 'chat');
+    candidates = applyKeyAccessPolicy(request, candidates, request.incomingApiType || 'chat');
+
+    const retryHistory: RetryAttemptRecord[] = [];
+    candidates = this.applyQuotaFilter(
+      request,
+      candidates,
+      retryHistory,
+      request.incomingApiType || 'chat'
+    );
 
     const targets = failoverEnabled ? candidates : [candidates[0]!];
     const attemptedProviders: string[] = [];
-    const retryHistory: RetryAttemptRecord[] = [];
     let lastError: any = null;
 
     // Check if this is already a vision descriptor request to prevent recursion
@@ -308,6 +681,15 @@ export class Dispatcher {
       if (signal?.aborted) throw this.buildCancelledError(signal);
       let currentRequest = { ...request };
       const route = targets[i]!;
+      const apiSelection = this.selectTargetApiType(route, currentRequest.incomingApiType);
+      if (!apiSelection.targetApiType) {
+        const reason = apiSelection.selectionReason;
+        logger.info(`Skipping ${route.provider}/${route.model} - ${reason}`);
+        lastError = new Error(reason);
+        this.appendSkippedAttempt(retryHistory, route, reason, currentRequest.incomingApiType);
+        continue;
+      }
+      const { targetApiType, selectionReason } = apiSelection;
       const attemptTimeout = this.createAttemptTimeout(
         signal,
         route.config.timeoutMs,
@@ -423,11 +805,6 @@ export class Dispatcher {
 
       try {
         // Determine Target API Type
-        const { targetApiType, selectionReason } = this.selectTargetApiType(
-          route,
-          currentRequest.incomingApiType
-        );
-
         logger.info(
           `Dispatcher: Selected API type '${targetApiType}' for model '${route.model}'. Reason: ${selectionReason}`
         );
@@ -1372,6 +1749,55 @@ export class Dispatcher {
     });
   }
 
+  /**
+   * Quota-aware candidate filter. Reads the QuotaContext attached by
+   * `attachQuotaContext` (quota-middleware.ts) at
+   * `metadata.plexus_metadata.plexus_quota_context` — absent whenever the
+   * caller never attached one (no quota assigned, or one of the non-chat
+   * dispatch paths that doesn't attach a context at all) — in which case
+   * this is a no-op and `candidates` is returned unchanged.
+   *
+   * Candidates blocked by a scope-matching exhausted quota are dropped and
+   * recorded as `skipped` retryHistory entries (reason
+   * `quota_exceeded:<quotaName>`) — routing silently narrows to the
+   * remaining candidates. Only when EVERY candidate ends up blocked does
+   * this throw a terminal `buildQuotaExceededError`, carrying every
+   * blocking snapshot so the 429 body's `blocking_quotas` reflects the full
+   * set.
+   */
+  private applyQuotaFilter<C extends RouteResult>(
+    request: { metadata?: Record<string, any> },
+    candidates: C[],
+    retryHistory: RetryAttemptRecord[],
+    apiType?: string
+  ): C[] {
+    const ctx = request.metadata?.plexus_metadata?.plexus_quota_context ?? null;
+    if (!ctx) return candidates;
+
+    const { allowed, blocked } = QuotaEnforcer.filterCandidates(ctx, candidates);
+    if (blocked.length === 0) return candidates;
+
+    for (const { candidate, quota } of blocked) {
+      this.appendSkippedAttempt(
+        retryHistory,
+        candidate,
+        `quota_exceeded:${quota.quotaName}`,
+        apiType
+      );
+    }
+
+    if (allowed.length === 0) {
+      // Terminal: keep the quota-skip breadcrumbs on the error so the saved
+      // UsageRecord's retryHistory isn't null when everything was blocked.
+      throw buildQuotaExceededError(
+        blocked.map((b) => b.quota),
+        retryHistory
+      );
+    }
+
+    return allowed;
+  }
+
   private appendSuccessAttempt(
     retryHistory: RetryAttemptRecord[],
     route: RouteResult,
@@ -1417,7 +1843,9 @@ export class Dispatcher {
     retryHistory: RetryAttemptRecord[] = []
   ): Error {
     const summary = attemptedProviders.length > 0 ? attemptedProviders.join(', ') : 'none';
-    const baseMessage = lastError?.message || 'Unknown provider error';
+    const baseMessage = this.compactProviderErrorSummary(
+      this.formatFailureReason(lastError) || lastError?.message || 'Unknown provider error'
+    );
     const enriched = new Error(`All targets failed: ${summary}. Last error: ${baseMessage}`) as any;
 
     enriched.cause = lastError;
@@ -1430,99 +1858,6 @@ export class Dispatcher {
     };
 
     return enriched;
-  }
-
-  private buildAccessDeniedError(message: string): Error {
-    const error = new Error(message) as Error & {
-      routingContext?: Record<string, unknown>;
-    };
-    error.routingContext = {
-      statusCode: 403,
-      errorType: 'access_denied',
-    };
-    return error;
-  }
-
-  private getKeyAccessPolicy(request: {
-    metadata?: {
-      plexus_metadata?: {
-        plexus_key_policy?: KeyAccessPolicy;
-      };
-    };
-  }): KeyAccessPolicy | null {
-    const policy = request.metadata?.plexus_metadata?.plexus_key_policy;
-    if (!policy) return null;
-
-    // Normalization (trim/filter) is already performed by attachKeyAccessPolicy()
-    // in auth.ts before the policy is attached to the request metadata.
-    // This method trusts that the policy is already clean.
-    if (
-      (!policy.allowedModels || policy.allowedModels.length === 0) &&
-      (!policy.allowedProviders || policy.allowedProviders.length === 0) &&
-      (!policy.excludedModels || policy.excludedModels.length === 0) &&
-      (!policy.excludedProviders || policy.excludedProviders.length === 0)
-    ) {
-      return null;
-    }
-
-    return policy;
-  }
-
-  private applyKeyAccessPolicy(
-    request: {
-      model: string;
-      metadata?: {
-        plexus_metadata?: {
-          plexus_key_policy?: KeyAccessPolicy;
-        };
-      };
-    },
-    candidates: RouteResult[],
-    apiType: string
-  ): RouteResult[] {
-    const policy = this.getKeyAccessPolicy(request);
-    if (!policy) return candidates;
-
-    // Excluded models: block if the requested model is in the denylist
-    if (policy.excludedModels && policy.excludedModels.includes(request.model)) {
-      throw this.buildAccessDeniedError(
-        `Key is not allowed to access model '${request.model}' for ${apiType}`
-      );
-    }
-
-    // Allowed models: block if the requested model is NOT in the allowlist
-    if (policy.allowedModels && !policy.allowedModels.includes(request.model)) {
-      throw this.buildAccessDeniedError(
-        `Key is not allowed to access model '${request.model}' for ${apiType}`
-      );
-    }
-
-    // Excluded providers: filter out candidates on the denylist
-    let filtered = candidates;
-    if (policy.excludedProviders && policy.excludedProviders.length > 0) {
-      filtered = filtered.filter(
-        (candidate) => !policy.excludedProviders!.includes(candidate.provider)
-      );
-      if (filtered.length === 0) {
-        throw this.buildAccessDeniedError(
-          `Key is not allowed to access any provider configured for model '${request.model}'`
-        );
-      }
-    }
-
-    // Allowed providers: filter candidates to only those on the allowlist
-    if (policy.allowedProviders && policy.allowedProviders.length > 0) {
-      filtered = filtered.filter((candidate) =>
-        policy.allowedProviders!.includes(candidate.provider)
-      );
-      if (filtered.length === 0) {
-        throw this.buildAccessDeniedError(
-          `Key is not allowed to access any provider configured for model '${request.model}'`
-        );
-      }
-    }
-
-    return filtered;
   }
 
   private async parseJsonResponseBody(
@@ -1584,7 +1919,7 @@ export class Dispatcher {
 
     // Use static API key
     if (route.config.api_key) {
-      const type = apiType.toLowerCase();
+      const type = getApiBaseType(apiType);
       if (type === 'messages') {
         headers['x-api-key'] = route.config.api_key;
         headers['anthropic-version'] = '2023-06-01';
@@ -1615,6 +1950,10 @@ export class Dispatcher {
       }
     }
 
+    if (apiType.toLowerCase() === 'responses:lite') {
+      headers['x-openai-internal-codex-responses-lite'] = 'true';
+    }
+
     return headers;
   }
 
@@ -1637,7 +1976,7 @@ export class Dispatcher {
   private selectTargetApiType(
     route: RouteResult,
     incomingApiType?: string
-  ): { targetApiType: string; selectionReason: string } {
+  ): { targetApiType?: string; selectionReason: string } {
     const providerTypes = this.extractProviderTypes(route);
 
     // Check if model specific access_via is defined
@@ -1646,7 +1985,9 @@ export class Dispatcher {
     // The available types for this specific routing
     // If model specific types are defined and not empty, use them. Otherwise fallback to provider types.
     const availableTypes =
-      modelSpecificTypes && modelSpecificTypes.length > 0 ? modelSpecificTypes : providerTypes;
+      modelSpecificTypes && modelSpecificTypes.length > 0
+        ? normalizeApiAccessList(modelSpecificTypes)
+        : providerTypes;
 
     let targetApiType = availableTypes[0]; // Default to first one
 
@@ -1665,6 +2006,10 @@ export class Dispatcher {
       if (match) {
         targetApiType = match;
         selectionReason = `matched incoming request type '${incoming}'`;
+      } else if (isApiSubtype(incoming)) {
+        return {
+          selectionReason: `incoming API subtype '${incoming}' is not supported by this target`,
+        };
       } else {
         selectionReason = `incoming type '${incoming}' not supported, defaulted to '${targetApiType}'`;
       }
@@ -1688,7 +2033,7 @@ export class Dispatcher {
       const typeKey = targetApiType.toLowerCase();
       // Check exact match first, then fallback to just looking for keys that might match?
       // Actually the config keys should probably match the api types (chat, messages, etc)
-      const specificUrl = urlMap[typeKey];
+      const specificUrl = urlMap[typeKey] || urlMap[getApiBaseType(typeKey)];
       const defaultUrl = urlMap['default'];
 
       if (specificUrl) {
@@ -2766,6 +3111,10 @@ export class Dispatcher {
       providerPayload = JSON.parse(JSON.stringify(request.originalBody));
       providerPayload.model = route.model;
 
+      if (getApiBaseType(targetApiType) === 'responses') {
+        providerPayload = stripUnsupportedResponsesCustomToolCallNamespaces(providerPayload);
+      }
+
       // Add metadata from request
       if (request.metadata) {
         const apiMetadata = this.getApiMetadata(request.metadata);
@@ -2798,6 +3147,8 @@ export class Dispatcher {
 
     // Convert reasoning field to thinkingConfig for Gemini API
     providerPayload = this.applyGeminiThinkingConfig(route, targetApiType, providerPayload);
+
+    providerPayload = this.applyRegistryAutoCompat(providerPayload, request, route, targetApiType);
 
     // Merge provider-level extraBody first
     if (route.config.extraBody) {
@@ -2837,6 +3188,57 @@ export class Dispatcher {
     }
 
     return { payload: providerPayload, bypassTransformation };
+  }
+
+  private applyRegistryAutoCompat(
+    providerPayload: any,
+    request: UnifiedChatRequest,
+    route: RouteResult,
+    targetApiType: string
+  ): any {
+    const autoCompat = route.config.auto_compat === true || route.modelConfig?.auto_compat === true;
+    if (!autoCompat) return providerPayload;
+
+    const piAiProvider = route.config.pi_ai_provider;
+    const piAiModelId = route.modelConfig?.pi_ai_model_id;
+    if (!piAiProvider || !piAiModelId) return providerPayload;
+
+    const piAiModel = resolvePiAiModel(piAiProvider, piAiModelId);
+    if (!piAiModel) {
+      logger.debug(
+        `Registry auto-compat skipped: ${route.provider}/${route.model} references unresolved ` +
+          `pi-ai model ${piAiProvider}/${piAiModelId}`
+      );
+      return providerPayload;
+    }
+
+    const intent = extractGenerationIntent(providerPayload, request);
+    const options = buildGenerationOptions(piAiModel, intent);
+
+    const api = (piAiModel.api as string | undefined) ?? targetApiType;
+    let nextPayload: any;
+    if (
+      api === 'openai-responses' ||
+      api === 'openai-codex-responses' ||
+      api === 'azure-openai-responses'
+    ) {
+      nextPayload = projectResponsesAutoCompat(providerPayload, piAiModel, intent, options);
+    } else if (api === 'anthropic-messages') {
+      nextPayload = projectAnthropicAutoCompat(providerPayload, piAiModel, intent, options);
+    } else if (api === 'google-generative-ai' || api === 'google-generative-ai-vertex') {
+      nextPayload = projectGeminiAutoCompat(providerPayload, intent, options);
+    } else {
+      nextPayload = projectOpenAiCompletionsAutoCompat(providerPayload, piAiModel, intent, options);
+    }
+
+    logger.debug(`Registry auto-compat applied for ${route.provider}/${route.model}`, {
+      piAiProvider,
+      piAiModelId,
+      api,
+      optionKeys: Object.keys(options),
+    });
+
+    return nextPayload;
   }
 
   /**
@@ -2959,12 +3361,15 @@ export class Dispatcher {
         route.provider,
         route.model,
         cooldownDuration,
-        `HTTP ${response.status}: ${errorText.slice(0, 500)}`
+        this.formatFailureReason(
+          { routingContext: { providerResponse: errorText, statusCode: response.status } },
+          true
+        )
       );
     }
 
     // Create enriched error with routing context
-    const error = new Error(`Provider failed: ${response.status} ${errorText}`) as any;
+    const error = new Error(this.formatClientProviderError(response.status, errorText)) as any;
     error.routingContext = {
       provider: route.provider,
       targetModel: route.model,
@@ -3195,11 +3600,13 @@ export class Dispatcher {
       candidates = [singleRoute];
     }
 
-    candidates = this.applyKeyAccessPolicy(request, candidates, 'embeddings');
+    candidates = applyKeyAccessPolicy(request, candidates, 'embeddings');
+
+    const retryHistory: RetryAttemptRecord[] = [];
+    candidates = this.applyQuotaFilter(request, candidates, retryHistory, 'embeddings');
 
     const targets = failoverEnabled ? candidates : [candidates[0]!];
     const attemptedProviders: string[] = [];
-    const retryHistory: RetryAttemptRecord[] = [];
     let lastError: any = null;
 
     for (let i = 0; i < targets.length; i++) {
@@ -3454,11 +3861,13 @@ export class Dispatcher {
       candidates = [singleRoute];
     }
 
-    candidates = this.applyKeyAccessPolicy(request, candidates, 'transcriptions');
+    candidates = applyKeyAccessPolicy(request, candidates, 'transcriptions');
+
+    const retryHistory: RetryAttemptRecord[] = [];
+    candidates = this.applyQuotaFilter(request, candidates, retryHistory, 'transcriptions');
 
     const targets = failoverEnabled ? candidates : [candidates[0]!];
     const attemptedProviders: string[] = [];
-    const retryHistory: RetryAttemptRecord[] = [];
     let lastError: any = null;
 
     for (let i = 0; i < targets.length; i++) {
@@ -3695,11 +4104,13 @@ export class Dispatcher {
       candidates = [singleRoute];
     }
 
-    candidates = this.applyKeyAccessPolicy(request, candidates, 'speech');
+    candidates = applyKeyAccessPolicy(request, candidates, 'speech');
+
+    const retryHistory: RetryAttemptRecord[] = [];
+    candidates = this.applyQuotaFilter(request, candidates, retryHistory, 'speech');
 
     const targets = failoverEnabled ? candidates : [candidates[0]!];
     const attemptedProviders: string[] = [];
-    const retryHistory: RetryAttemptRecord[] = [];
     let lastError: any = null;
 
     for (let i = 0; i < targets.length; i++) {
@@ -3773,6 +4184,11 @@ export class Dispatcher {
 
         if (route.config.extraBody) {
           Object.assign(payload, route.config.extraBody);
+        }
+
+        // Merge model-level extraBody (overrides provider level)
+        if (route.modelConfig?.extraBody) {
+          Object.assign(payload, route.modelConfig.extraBody);
         }
 
         // Merge alias-level extraBody (overrides provider level)
@@ -3980,11 +4396,13 @@ export class Dispatcher {
       candidates = [singleRoute];
     }
 
-    candidates = this.applyKeyAccessPolicy(request, candidates, 'images');
+    candidates = applyKeyAccessPolicy(request, candidates, 'images');
+
+    const retryHistory: RetryAttemptRecord[] = [];
+    candidates = this.applyQuotaFilter(request, candidates, retryHistory, 'images');
 
     const targets = failoverEnabled ? candidates : [candidates[0]!];
     const attemptedProviders: string[] = [];
-    const retryHistory: RetryAttemptRecord[] = [];
     let lastError: any = null;
 
     for (let i = 0; i < targets.length; i++) {
@@ -4059,6 +4477,11 @@ export class Dispatcher {
 
         if (route.config.extraBody) {
           Object.assign(payload, route.config.extraBody);
+        }
+
+        // Merge model-level extraBody (overrides provider level)
+        if (route.modelConfig?.extraBody) {
+          Object.assign(payload, route.modelConfig.extraBody);
         }
 
         // Merge alias-level extraBody (overrides provider level)
@@ -4220,11 +4643,13 @@ export class Dispatcher {
       candidates = [singleRoute];
     }
 
-    candidates = this.applyKeyAccessPolicy(request, candidates, 'images');
+    candidates = applyKeyAccessPolicy(request, candidates, 'images');
+
+    const retryHistory: RetryAttemptRecord[] = [];
+    candidates = this.applyQuotaFilter(request, candidates, retryHistory, 'images');
 
     const targets = failoverEnabled ? candidates : [candidates[0]!];
     const attemptedProviders: string[] = [];
-    const retryHistory: RetryAttemptRecord[] = [];
     let lastError: any = null;
 
     for (let i = 0; i < targets.length; i++) {
