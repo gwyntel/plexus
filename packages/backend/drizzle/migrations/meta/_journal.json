@@ -407,6 +407,13 @@
       "when": 1783840103366,
       "tag": "0057_test_setup",
       "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "6",
+      "when": 1783892677923,
+      "tag": "0058_auto_schema_update",
+      "breakpoints": true
     }
   ]
 }
