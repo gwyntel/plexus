@@ -1,3 +1,4 @@
+import { CUSTOM_CHECKER_WORKER_SOURCE } from './custom-checker-worker-source.generated';
 import type { Meter } from '../../types/meter';
 import type { AllowanceParams, BalanceParams, MeterContext } from './checker-registry';
 
@@ -98,6 +99,43 @@ function materializeMeters(ctx: MeterContext, markers: MeterMarker[]): Meter[] {
   );
 }
 
+// The custom checker runs in a Web Worker so a user-supplied body can be timed out
+// and torn down without touching the main thread.
+//
+// The worker is spawned from the inlined source in
+// `custom-checker-worker-source.generated.ts` rather than from a path, because Bun's
+// `--compile` static analyzer cannot discover
+// `new Worker(new URL('./custom-checker-worker.ts', import.meta.url))` — the path only
+// resolves against the original source tree, so the worker never lands in the binary and
+// runtime fails with:
+//   BuildMessage: ModuleNotFound resolving "/$bunfs/root/custom-checker-worker.ts" (entry point)
+//
+// Import attributes (`with { type: 'text' }`) embed correctly in a compiled binary but
+// break Vitest, which resolves the attributed import as a normal module import and fails
+// with `Missing 'default' export in module '.../custom-checker-worker.ts'`. A plain
+// generated module resolves identically in dev, Vitest, and compiled binaries.
+//
+// Blob URLs are only used inside a compiled binary: outside one, the runtime would spawn
+// a node worker thread and the blob form is not usable. Compiled binaries report a
+// `/$bunfs/` virtual path from `import.meta.url` (note `Bun.isStandaloneExecutable` is
+// `undefined` in this build, so the path is the reliable discriminator).
+const WORKER_FILE_URL = new URL('./custom-checker-worker.ts', import.meta.url);
+let cachedWorkerSourceUrl: string | undefined;
+
+function isCompiledBinary(): boolean {
+  return import.meta.url.includes('/$bunfs/');
+}
+
+function createCheckerWorker(): Worker {
+  if (!isCompiledBinary()) {
+    return new Worker(WORKER_FILE_URL, { type: 'module' });
+  }
+  cachedWorkerSourceUrl ??= URL.createObjectURL(
+    new Blob([CUSTOM_CHECKER_WORKER_SOURCE], { type: 'text/javascript' })
+  );
+  return new Worker(cachedWorkerSourceUrl, { type: 'module' });
+}
+
 export async function runCustomChecker(
   code: string,
   ctx: MeterContext,
@@ -105,9 +143,7 @@ export async function runCustomChecker(
 ): Promise<Meter[]> {
   validateCustomCheckerCode(code);
 
-  const worker = new Worker(new URL('./custom-checker-worker.ts', import.meta.url), {
-    type: 'module',
-  });
+  const worker = createCheckerWorker();
 
   const request: WorkerRequest = {
     code,
